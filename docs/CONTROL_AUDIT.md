@@ -1,5 +1,7 @@
 # Renew control audit
 
+> Historical concept-C audit. The art-led console supersedes the overview panels and adds an Emulator/Launch category rail. Current validation and changed control coverage are recorded in [UI_INTEGRATION.md](UI_INTEGRATION.md); the test sources are authoritative.
+
 Audited on 2026-10-02 against the current working-tree implementation of concept C. This is a control-behavior audit, **not a claim that every Windows interaction has been proven**. It must be rerun after source changes.
 
 ## Result and reproducible evidence

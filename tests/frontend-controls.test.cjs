@@ -154,11 +154,12 @@ test('control audit: list and grid switches change the layout state without losi
   assert.equal(titles().length, 4);
 });
 for (const control of ['select', 'title']) {
-  test(`control audit: card ${control} selects the correct hero and overview without launching`, async () => {
+  test(`control audit: card ${control} selects the correct hero, artwork and details target without launching`, async () => {
     const context = await setup();
     node(`[data-focus="${control}-b"]`).focus(); click(`[data-focus="${control}-b"]`);
     assert.equal(node('#hero-title').textContent, 'Blue Moon');
-    assert.equal(node('.selected-summary strong').textContent, 'Blue Moon');
+    assert.equal(node('[aria-label="Edit selected game details"]').dataset.id, 'b');
+    assert.equal(node('.scene img').getAttribute('src'), './art/ocean-v1.png');
     assert.equal(node('[data-focus="select-b"]').getAttribute('aria-pressed'), 'true');
     assert.equal(node('[data-focus="select-a"]').getAttribute('aria-pressed'), 'false');
     assert.equal(node('[data-action="play"]').dataset.id, 'b');
@@ -180,8 +181,7 @@ const imports = [
   ['heading', '.add-button', false],
   ['quick actions', '[aria-label="Add games from quick actions"]', false],
   ['empty hero', '[data-focus="empty-import"]', true],
-  ['empty collection', '.empty-collection [data-action="import"]', true],
-  ['empty overview', '.game-overview [data-action="import"]', true]
+  ['empty collection', '.empty-collection [data-action="import"]', true]
 ];
 for (const [name, selector, empty] of imports) {
   test(`control audit: Add games from ${name} calls import once and renders returned entries`, async () => {
@@ -433,7 +433,7 @@ test('control audit: every interactive element in each generated app/dialog stat
     '#search', '#sort', '[data-focus="layout-grid"]', '[data-focus="layout-list"]',
     '[data-focus="filter-all"]', '[data-focus="filter-GBA"]', '[data-focus="filter-GBC"]', '[data-focus="filter-GB"]',
     '.game-art-button', '.card-title', '.card-menu', '[data-focus="empty-import"]', '.empty-collection [data-action="import"]',
-    '.game-overview [data-action="import"]', '[data-action="reset-filters"]',
+    '[data-action="reset-filters"]', '#settings-tab-emulator', '#settings-tab-launch',
     '#choose-emulator', '#fullscreen', '#returnToLauncher', '[aria-label="Close settings"]', '#dialog .dialog-actions [data-close]',
     '#game-title', '#save-title', '#detail-favorite', '#remove-game', '[aria-label="Close game details"]',
     '#confirm-remove', '[aria-label="Cancel removal"]', '[aria-label="Close message"]', '#clear-preview'
@@ -492,4 +492,165 @@ test('control audit: real preview Explore empty-library clears samples and a fre
   assert.equal(titles().length, 0); assert.equal(node('#dialog').open, false);
   assert.ok(node('[data-focus="empty-import"]'));
   await setup({ realPreview: true }); assert.equal(titles().length, 6);
+});
+
+// Selection, the hero and keyboard launch must agree with the visible collection.
+test('filtered selection: search updates hero and Play without launching from search Enter', async () => {
+  const context = await setup();
+  node('#search').focus();
+  input('#search', 'blue');
+  assert.deepEqual(titles(), ['Blue Moon']);
+  assert.equal(node('#hero-title').textContent, 'Blue Moon');
+  assert.equal(node('[data-action="play"]').dataset.id, 'b');
+  assert.equal(node('[data-focus="select-b"]').getAttribute('aria-pressed'), 'true');
+  key('Enter');
+  assert.equal(callCount(context, 'launchGame'), 0);
+  node('#search').blur();
+  assert.equal(document.activeElement, document.body);
+  key('Enter');
+  await settle();
+  assert.deepEqual(callsFor(context, 'launchGame'), [['b']]);
+});
+test('filtered selection: Favorites and platform filters replace hidden selections', async () => {
+  await setup();
+  click('[data-focus="select-b"]');
+  click('[data-view="favorites"]');
+  assert.equal(node('[data-action="play"]').dataset.id, 'a');
+  click('[data-view="library"]');
+  click('[data-focus="filter-GBC"]');
+  assert.equal(node('#hero-title').textContent, 'Amber Trail');
+  assert.equal(node('[data-action="play"]').dataset.id, 'c');
+});
+test('filtered selection: zero matches clear Play and Enter, reset restores a visible selection', async () => {
+  const context = await setup();
+  input('#search', 'no matching game');
+  assert.deepEqual(titles(), []);
+  assert.match(node('.hero').textContent, /No games in this view/);
+  assert.equal(document.querySelector('[data-action="play"]'), null);
+  key('Enter');
+  assert.equal(callCount(context, 'launchGame'), 0);
+  click('[data-action="reset-filters"]');
+  assert.equal(node('[data-action="play"]').dataset.id, 'b');
+  assert.equal(node('[data-focus="select-b"]').getAttribute('aria-pressed'), 'true');
+});
+test('filtered selection: state changes reconcile selection and retain a visible choice on sorting', async () => {
+  const context = await setup();
+  click('[data-view="favorites"]');
+  click('[data-focus="select-d"]');
+  change('#sort', 'title');
+  assert.equal(node('[data-action="play"]').dataset.id, 'd');
+  context.emit({ games: context.state.games.map(game => ({ ...game, favorite: game.id === 'd' ? false : game.favorite })) });
+  assert.equal(node('[data-action="play"]').dataset.id, 'a');
+});
+test('filtered selection: changing selection cannot bypass a running or pending launch guard', async () => {
+  const task = deferred();
+  const context = await setup({ methods: { launchGame: () => task.promise } });
+  click('[data-action="play"]');
+  input('#search', 'blue');
+  assert.equal(node('[data-action="play"]').dataset.id, 'b');
+  assert.equal(node('[data-action="play"]').disabled, true);
+  key('Enter');
+  assert.equal(callCount(context, 'launchGame'), 1);
+  task.resolve({ ...context.copy(), session: { gameId: 'a', status: 'running' } });
+  await settle();
+  assert.equal(node('[data-action="play"]').disabled, true);
+  key('Enter');
+  assert.equal(callCount(context, 'launchGame'), 1);
+});
+
+// Category navigation groups existing preferences without adding configuration.
+test('console settings: category rail exposes only emulator and launch panels without mutations', async () => {
+  const context = await setup();
+  click('[data-focus="settings"]');
+  assert.equal(node('#dialog').className, 'console-settings');
+  assert.deepEqual([...document.querySelectorAll('[role="tab"]')].map(tab => tab.dataset.settingsTab), ['emulator', 'launch']);
+  assert.equal(node('#settings-panel-emulator').hidden, false);
+  assert.equal(node('#settings-panel-launch').hidden, true);
+  click('#settings-tab-launch');
+  assert.equal(node('#settings-panel-emulator').hidden, true);
+  assert.equal(node('#settings-panel-launch').hidden, false);
+  assert.equal(node('#settings-tab-launch').getAttribute('aria-selected'), 'true');
+  assert.equal(node('#settings-tab-emulator').tabIndex, -1);
+  assert.equal(node('#settings-tab-launch').tabIndex, 0);
+  click('#settings-tab-launch');
+  click('#settings-tab-emulator');
+  assert.equal(node('#settings-panel-emulator').hidden, false);
+  assert.equal(callCount(context, 'updateSettings'), 0);
+  assert.equal(callCount(context, 'chooseEmulator'), 0);
+});
+test('console settings: category keyboard navigation moves focus and keeps panels synchronized', async () => {
+  await setup();
+  click('[data-focus="settings"]');
+  const tabKey = value => document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
+  node('#settings-tab-emulator').focus();
+  tabKey('ArrowDown');
+  assert.equal(document.activeElement.id, 'settings-tab-launch');
+  assert.equal(node('#settings-panel-launch').hidden, false);
+  tabKey('ArrowDown');
+  assert.equal(document.activeElement.id, 'settings-tab-emulator');
+  tabKey('End');
+  assert.equal(document.activeElement.id, 'settings-tab-launch');
+  tabKey('Home');
+  assert.equal(document.activeElement.id, 'settings-tab-emulator');
+  tabKey('ArrowUp');
+  assert.equal(document.activeElement.id, 'settings-tab-launch');
+  assert.equal(node('#settings-tab-launch').getAttribute('aria-selected'), 'true');
+  cancelDialog();
+  assert.equal(node('#dialog').open, false);
+});
+test('console settings: pending launch preference locks categories and preserves close and launch tab', async () => {
+  const task = deferred();
+  const context = await setup({ methods: { updateSettings: () => task.promise } });
+  node('[data-focus="settings"]').focus();
+  click('[data-focus="settings"]');
+  click('#settings-tab-launch');
+  change('#fullscreen', false);
+  assert.equal(node('#settings-tab-emulator').disabled, true);
+  assert.equal(node('#settings-tab-launch').disabled, true);
+  assert.equal(node('[aria-label="Close settings"]').disabled, false);
+  assert.equal(node('#settings-panel-launch').hidden, false);
+  click('#settings-tab-emulator');
+  assert.equal(node('#settings-panel-emulator').hidden, true);
+  click('[aria-label="Close settings"]');
+  task.resolve({ ...context.copy(), settings: { ...context.state.settings, fullscreen: false } });
+  await settle();
+  assert.equal(node('#dialog').open, false);
+  assert.equal(document.activeElement.dataset.focus, 'settings');
+});
+test('console settings: failed writes keep the visible launch panel and revert the switch for retry', async () => {
+  const context = await setup({ methods: { updateSettings: async () => { throw new Error('Disk unavailable'); } } });
+  click('[data-focus="settings"]');
+  click('#settings-tab-launch');
+  change('#fullscreen', false);
+  await settle();
+  assert.equal(node('#settings-panel-launch').hidden, false);
+  assert.equal(node('#settings-tab-launch').getAttribute('aria-selected'), 'true');
+  assert.equal(node('#fullscreen').checked, true);
+  assert.equal(node('#fullscreen').disabled, false);
+  assert.match(node('[data-operation-error]').textContent, /Disk unavailable/);
+  assert.equal(callCount(context, 'updateSettings'), 1);
+});
+test('console settings: a later details/error dialog does not retain the settings layout', async () => {
+  const context = await setup({ methods: { launchGame: async () => { throw new Error('Missing emulator'); } } });
+  click('[data-focus="settings"]'); cancelDialog();
+  click('[data-focus="details-a"]');
+  assert.equal(node('#dialog').className, '');
+  cancelDialog();
+  click('[data-focus="hero-play"]'); await settle();
+  assert.equal(node('#dialog').className, '');
+  assert.equal(callCount(context, 'launchGame'), 1);
+});
+test('console settings: narrow preview switches tab orientation and uses Left/Right navigation', async () => {
+  await setup();
+  window.innerWidth = 480;
+  click('[data-focus="settings"]');
+  assert.equal(node('.settings-nav').getAttribute('aria-orientation'), 'horizontal');
+  node('#settings-tab-emulator').focus();
+  document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(document.activeElement.id, 'settings-tab-launch');
+  window.innerWidth = 980;
+  window.dispatchEvent(new window.Event('resize'));
+  assert.equal(node('.settings-nav').getAttribute('aria-orientation'), 'vertical');
+  document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+  assert.equal(document.activeElement.id, 'settings-tab-emulator');
 });

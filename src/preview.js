@@ -1,7 +1,7 @@
 // Sample content is confined to the browser preview. Desktop starts empty.
 import { artForId } from './model.js';
 const demoGames = [
-  { id: 'sample-verdant', title: 'The Verdant Trail', system: 'GBA', art: 'aurora', favorite: true, playSeconds: 5238 },
+  { id: 'sample-verdant', title: 'The Last Orchard', system: 'GBA', art: 'aurora', favorite: true, playSeconds: 5238 },
   { id: 'sample-solstice', title: 'Solstice Valley', system: 'GBA', art: 'ember', favorite: false, playSeconds: 2700 },
   { id: 'sample-tides', title: 'Between the Tides', system: 'GBC', art: 'ocean', favorite: true, playSeconds: 0 },
   { id: 'sample-moon', title: 'Moonlit Letters', system: 'GB', art: 'violet', favorite: false, playSeconds: 916 },

@@ -26,6 +26,6 @@ const paths = {
 };
 export function icon(name, cls = '') { return `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.game}</svg>`; }
 export function artwork(game) {
-  const name = {aurora: 'citadel-v1', ember: 'ember-v1', ocean: 'ocean-v1', violet: 'violet-v1'}[game.art || artForId(game.id)] || 'citadel-v1';
+  const name = {aurora: 'orchard-v1', ember: 'ember-v1', ocean: 'ocean-v1', violet: 'violet-v1'}[game.art || artForId(game.id)] || 'citadel-v1';
   return `./art/${name}.png`;
 }

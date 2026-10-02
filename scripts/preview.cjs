@@ -14,4 +14,5 @@ const server = http.createServer(async (req, res) => {
     res.end(body);
   } catch { res.writeHead(404).end('Not found'); }
 });
-server.listen(Number(process.env.PORT || 4173), '127.0.0.1', () => console.log('Renew visual preview: http://127.0.0.1:4173/?preview=1 (no native launch capabilities)'));
+const port = Number(process.env.PORT || 4173);
+server.listen(port, '127.0.0.1', () => console.log(`Renew visual preview: http://127.0.0.1:${port}/?preview=1 (no native launch capabilities)`));

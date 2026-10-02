@@ -179,6 +179,8 @@ test('library row keeps its scroll position through selection rerenders',async()
   await setup();document.querySelector('.game-grid').scrollLeft=240;click('[data-focus="select-b"]');
   assert.equal(document.querySelector('.game-grid').scrollLeft,240);
 });
-test('the decorative Enter hint is hidden from the Play button accessible name',async()=>{
-  await setup();assert.equal(document.querySelector('.key-hint').getAttribute('aria-hidden'),'true');
+test('the art-led Play button has a stable accessible name without decorative shortcut text',async()=>{
+  await setup();
+  assert.equal(document.querySelector('[data-action="play"]').getAttribute('aria-label'),'Play game');
+  assert.equal(document.querySelector('.key-hint'),null);
 });

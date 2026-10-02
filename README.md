@@ -1,12 +1,13 @@
 # Renew
 
-**A new home for old favorites.** A focused, Windows-first mGBA launcher with a local game library, a blue/charcoal console-inspired interface, and original landscape artwork.
+**A new home for old favorites.** A focused, Windows-first mGBA launcher with a local game library, an art-led blue/charcoal console interface, and original landscape artwork.
 
 ## First Light · v0.1.0
 
 - Manually add uncompressed `.gba`, `.gbc`, and `.gb` files you own
 - Search, filter by system, sort, choose row/list view, rename and favorite games
 - Expand or collapse the navigation rail; Renew remembers this presentation choice
+- Use console-style Emulator and Launch settings with large rows and descriptions
 - Choose an existing mGBA `.exe`; launch with literal arguments and no shell
 - Track the launched child process, prevent overlapping launches, and restore Renew on exit when enabled
 - Store the library atomically in the app's user-data folder; preserve corrupt data and refuse unsafe writes
@@ -46,7 +47,9 @@ npm run verify
 npm run test:e2e
 ```
 
-`verify` runs syntax, service/security tests and jsdom DOM interaction tests. The browser tests additionally require Playwright Chromium (`npx playwright install chromium`). CI runs unit/DOM checks on Linux and Windows, renders the preview in Chromium, saves screenshot/trace artifacts, and builds an unsigned Windows package. See [verification boundaries](docs/VERIFICATION.md) before interpreting results.
+`verify` runs syntax, service/security tests and jsdom DOM interaction tests. The browser tests additionally require Playwright Chromium (`npx playwright install chromium`). The browser suite starts its own server rather than reusing an unrelated preview. Set the `PORT` environment variable before running the suite if the default port is busy. The default uses Playwright’s pinned Chromium; an optional `RENEW_TEST_CHROMIUM` path supports a separately installed local Chromium for diagnostic runs.
+
+CI runs unit/DOM checks on Linux and Windows, renders the preview in Chromium, saves screenshot/trace artifacts, and builds an unsigned Windows package. See [verification boundaries](docs/VERIFICATION.md) before interpreting results.
 
 ## Architecture
 
@@ -60,5 +63,7 @@ npm run test:e2e
 - `src/preferences.js`: presentation-only menu preference
 - `src/preview.js`: explicit visual-preview-only sample adapter
 - `tests/`: regression tests; `tests/e2e/`: rendered browser interactions
+
+See [art-led UI integration verification](docs/UI_INTEGRATION.md) for the current local UI evidence and rendering limitations.
 
 Read [the handoff](docs/HANDOFF.md) for the bounded next validation steps. This is a review milestone, not a claim of production readiness.

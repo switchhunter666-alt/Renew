@@ -25,7 +25,7 @@ test('Windows Electron boots its real preload, persists settings and displays na
   const launch = async () => {
     application = await electron.launch({ args: [bootstrap], cwd: process.cwd(), timeout: 30000 });
     const page = await application.firstWindow({ timeout: 30000 });
-    await expect(page.getByRole('heading', { name: 'Your next little escape.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
     return page;
   };
   let page = await launch();
@@ -45,6 +45,7 @@ test('Windows Electron boots its real preload, persists settings and displays na
   // Restore this test-owned window to continue; this is not a taskbar interaction claim.
   await application.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.restore(); win.show(); win.focus(); });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Launch', exact: true }).click();
   await page.getByRole('switch', { name: 'Start games fullscreen' }).uncheck();
   await expect(page.getByRole('switch', { name: 'Start games fullscreen' })).toBeEnabled();
   await page.getByRole('button', { name: 'Done', exact: true }).click();

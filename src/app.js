@@ -23,6 +23,8 @@ function applyState(next) {
   render();
 }
 function render() {
+  const visibleGames = selectGames(state.games, ui);
+  if (!visibleGames.some(game => game.id === selectedId)) selectedId = visibleGames[0]?.id;
   const focus = document.activeElement?.dataset.focus;
   const rowScroll = app.querySelector('.game-grid')?.scrollLeft || 0;
   const selection = document.activeElement?.id === 'search' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
@@ -91,12 +93,13 @@ function closeDialog() {
   const returnTarget = (dialogReturnFocus && app.querySelector(`[data-focus="${CSS.escape(dialogReturnFocus)}"]`)) || app.querySelector('[data-focus="import"]');
   returnTarget?.focus({ preventScroll: true });
 }
-function showDialog(content) {
+function showDialog(content, kind = '') {
   if (!dialog.open) dialogReturnFocus = document.activeElement?.dataset.focus || dialogReturnFocus;
   dialogGeneration++;
   if (dialog.open) dialog.close();
   dialog.removeAttribute('aria-busy');
   dialogGameId = null;
+  dialog.className = kind;
   dialog.innerHTML = content;
   dialog.showModal();
   dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', closeDialog));
@@ -106,9 +109,52 @@ function showDialog(content) {
 function showError(error) {
   showDialog(`<div class="dialog-top"><span class="dialog-icon warning-icon">${icon('warning')}</span><button class="icon-button" data-close aria-label="Close message">${icon('close')}</button></div><div class="eyebrow">LET’S GET YOU BACK TO PLAY</div><h2 id="dialog-title">${isPreview ? 'You’re in the visual preview' : 'Something needs attention'}</h2><p class="dialog-description">${esc(error.message || error)}</p><div class="dialog-actions"><button class="button primary" data-close>Got it</button></div>`);
 }
-function showSettings() {
-  const generation = showDialog(`<div class="dialog-top"><span class="dialog-icon">${icon('settings')}</span><button class="icon-button" data-close aria-label="Close settings">${icon('close')}</button></div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h2 id="dialog-title">A little setup. Then play.</h2><p class="dialog-description">Renew keeps your library on this computer. Your games and emulator stay exactly where you put them.</p><section class="settings-section"><div class="setting-heading"><h3>Your emulator</h3><span class="tag">mGBA</span></div><div class="emulator-path">${icon('folder')}<span>${esc(state.settings.emulatorPath || 'No emulator selected')}</span></div><button class="button subtle full-width" id="choose-emulator">${icon('folder')} Choose mGBA executable</button><p class="field-hint">Use an existing mGBA installation from mgba.io. Renew does not download or bundle emulators.</p></section><section class="settings-section"><label class="setting-row"><span><strong>Start games fullscreen</strong><small>Go straight into your game</small></span><input type="checkbox" id="fullscreen" role="switch" ${state.settings.fullscreen ? 'checked' : ''}></label><label class="setting-row"><span><strong>Come back to Renew</strong><small>Restore the launcher when mGBA exits</small></span><input type="checkbox" id="returnToLauncher" role="switch" ${state.settings.returnToLauncher ? 'checked' : ''}></label></section>${isPreview ? '<div class="notice">These preview settings last for this tab only. Native launch and Windows focus behavior are not measured here.</div><button class="text-button" id="clear-preview">Explore the empty-library state</button>' : ''}<div class="dialog-actions"><button class="button primary" data-close>Done</button></div>`);
-  dialog.querySelector('#choose-emulator').addEventListener('click', async () => { const ok = await run(() => api.chooseEmulator(), null, generation); if (ok && generation === dialogGeneration && dialog.open) showSettings(); });
+function syncSettingsOrientation() {
+  const tabs = dialog.querySelector('.settings-nav');
+  if (tabs) tabs.setAttribute('aria-orientation', window.innerWidth <= 600 ? 'horizontal' : 'vertical');
+}
+window.addEventListener('resize', syncSettingsOrientation);
+function showSettings(category = 'emulator') {
+  const generation = showDialog(`<header class="settings-header"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h2 id="dialog-title">Settings</h2><p>A little setup. Then play.</p></div><button class="icon-button" data-close aria-label="Close settings">${icon('close')}</button></header>
+    <div class="settings-layout"><div class="settings-nav" role="tablist" aria-label="Settings categories" aria-orientation="vertical">
+      <button id="settings-tab-emulator" role="tab" data-settings-tab="emulator" aria-controls="settings-panel-emulator" aria-selected="true">${icon('game')}<span>Emulator</span>${icon('chevron')}</button>
+      <button id="settings-tab-launch" role="tab" data-settings-tab="launch" aria-controls="settings-panel-launch" aria-selected="false" tabindex="-1">${icon('play')}<span>Launch</span>${icon('chevron')}</button>
+      <div class="settings-local">${icon('folder')}<span>Stored on this computer<small>Your games stay where they are.</small></span></div>
+    </div><div class="settings-content">
+      <section id="settings-panel-emulator" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-emulator"><div class="settings-section-title"><div><h3>Your emulator</h3><p>Connect your existing mGBA installation.</p></div><span class="tag">mGBA</span></div>
+        <div class="emulator-setting"><div><strong>mGBA executable</strong><p>Choose the application Renew will use to open your games.</p></div><div class="emulator-picker"><div class="emulator-path">${icon('folder')}<span>${esc(state.settings.emulatorPath || 'No emulator selected')}</span></div><button class="button subtle" id="choose-emulator" aria-label="Choose mGBA executable">Browse…</button></div><p class="field-hint">Use an existing mGBA installation from mgba.io. Renew does not download or bundle emulators.</p></div>
+        <div class="settings-explainer">${icon('game')}<div><strong>Made for your handheld favorites</strong><p>Game Boy Advance, Game Boy Color and Game Boy.</p></div></div>
+      </section>
+      <section id="settings-panel-launch" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-launch" hidden><div class="settings-section-title"><div><h3>Launch behavior</h3><p>A smooth way into your game, and back.</p></div></div>
+        <label class="setting-row"><span><strong>Start games fullscreen</strong><small id="fullscreen-description">Go straight into your game</small></span><input type="checkbox" id="fullscreen" role="switch" aria-label="Start games fullscreen" aria-describedby="fullscreen-description" ${state.settings.fullscreen ? 'checked' : ''}></label>
+        <label class="setting-row"><span><strong>Come back to Renew</strong><small id="return-description">Restore the launcher when mGBA exits</small></span><input type="checkbox" id="returnToLauncher" role="switch" aria-label="Come back to Renew" aria-describedby="return-description" ${state.settings.returnToLauncher ? 'checked' : ''}></label>
+        <p class="field-hint">Close your game using mGBA’s own controls. Renew stays ready for your next session.</p>
+      </section>
+    </div></div>
+    ${isPreview ? '<div class="settings-preview"><p>Preview settings last for this tab only. Native launch and Windows focus behavior are not measured here.</p><button class="text-button" id="clear-preview">Explore the empty-library state</button></div>' : ''}
+    <footer class="dialog-actions settings-footer"><span>${isPreview ? 'Preview changes apply automatically' : 'Settings save automatically'}</span><button class="button primary" data-close>Done</button></footer>`, 'console-settings');
+  const selectCategory = (next, focus = false) => {
+    category = next;
+    for (const tab of dialog.querySelectorAll('[data-settings-tab]')) {
+      const selected = tab.dataset.settingsTab === category;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      dialog.querySelector(`#${tab.getAttribute('aria-controls')}`).hidden = !selected;
+      if (selected && focus) tab.focus();
+    }
+  };
+  selectCategory(category);
+  syncSettingsOrientation();
+  for (const tab of dialog.querySelectorAll('[data-settings-tab]')) {
+    tab.addEventListener('click', () => selectCategory(tab.dataset.settingsTab));
+    tab.addEventListener('keydown', event => {
+      const arrows = window.innerWidth <= 600 ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+      if (![...arrows, 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      selectCategory(event.key === 'Home' ? 'emulator' : event.key === 'End' ? 'launch' : category === 'emulator' ? 'launch' : 'emulator', true);
+    });
+  }
+  dialog.querySelector('#choose-emulator').addEventListener('click', async () => { const ok = await run(() => api.chooseEmulator(), null, generation); if (ok && generation === dialogGeneration && dialog.open) { showSettings(category); dialog.querySelector('#choose-emulator')?.focus(); } });
   for (const setting of ['fullscreen','returnToLauncher']) dialog.querySelector(`#${setting}`).addEventListener('change', async event => { const value = event.target.checked; const ok = await run(() => api.updateSettings({ [setting]: value }), null, generation); if (ok) announce('Setting saved'); });
   dialog.querySelector('#clear-preview')?.addEventListener('click', async () => { applyState(await api.clearPreview()); if (generation === dialogGeneration) closeDialog(); });
 }

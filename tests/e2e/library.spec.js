@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('rendered preview: search, selection, favorites, dialogs, settings and empty state', async ({page}, testInfo) => {
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.goto('/?preview=1');
-  await expect(page.getByRole('heading',{name:'Your next little escape.'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'The Last Orchard',exact:true})).toBeVisible();
   await expect(page.locator('.game-card')).toHaveCount(6);
   await expect(page.locator('img').first()).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('renew-library-preview.png'),fullPage:true});
@@ -19,9 +19,11 @@ test('rendered preview: search, selection, favorites, dialogs, settings and empt
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.screenshot({path:testInfo.outputPath('renew-settings-preview.png'),fullPage:false});
+  await page.getByRole('tab',{name:'Launch',exact:true}).click();
   await page.getByRole('switch',{name:'Start games fullscreen'}).uncheck();
   await page.getByRole('button',{name:'Done',exact:true}).click();
   await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('tab',{name:'Launch',exact:true}).click();
   await expect(page.getByRole('switch',{name:'Start games fullscreen'})).not.toBeChecked();
   await page.getByRole('button',{name:'Explore the empty-library state'}).click();
   await expect(page.locator('.game-card')).toHaveCount(0);
@@ -31,10 +33,10 @@ test('rendered preview: search, selection, favorites, dialogs, settings and empt
 });
 
 test('supported narrow window retains named navigation and no horizontal overflow',async({page},testInfo)=>{
-  await page.setViewportSize({width:980,height:720});
+  await page.setViewportSize({width:980,height:680});
   await page.goto('/?preview=1');
   for(const name of ['Library','Favorites','Settings','Game Boy Advance','Game Boy Color','Game Boy']) await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Details for The Verdant Trail'}).click();
+  await page.getByRole('button',{name:'Details for The Last Orchard'}).click();
   await page.getByRole('textbox',{name:'Display name'}).fill('A'.repeat(160));
   await page.getByRole('button',{name:'Save name'}).click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
@@ -47,7 +49,7 @@ test('preview never silently replaces a missing desktop connection',async({page}
   await expect(page.locator('.game-card')).toHaveCount(0);
 });
 
-test('concept C menu collapses, keeps keyboard focus and remembers the choice',async({page},testInfo)=>{
+test('art-led console menu collapses, keeps keyboard focus and remembers the choice',async({page},testInfo)=>{
   await page.goto('/?preview=1');
   const toggle=page.getByRole('button',{name:'Expand navigation menu',exact:true});
   await expect(toggle).toHaveAttribute('aria-expanded','false');
@@ -95,4 +97,45 @@ test('browser add, details, favorites, sort, views, invalid title and removal co
   await page.getByRole('button',{name:'Remove from library',exact:true}).click();
   await expect(page.locator('.game-card')).toHaveCount(2);
   await expect(page.getByRole('button',{name:'Add games',exact:true})).toBeFocused();
+});
+
+test('filtered selection and empty search keep artwork, hero and launch aligned', async ({page}, testInfo) => {
+  await page.goto('/?preview=1');
+  await page.getByRole('searchbox',{name:'Find a game'}).fill('moon');
+  await expect(page.locator('#hero-title')).toHaveText('Moonlit Letters');
+  await expect(page.getByRole('button',{name:'Select Moonlit Letters',exact:true})).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.scene img')).toHaveAttribute('src','./art/violet-v1.png');
+  await page.getByRole('searchbox',{name:'Find a game'}).fill('not in this library');
+  await expect(page.getByRole('heading',{name:'No games in this view.'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Play game',exact:true})).toHaveCount(0);
+  await page.getByRole('searchbox',{name:'Find a game'}).press('Enter');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('renew-no-results.png'),fullPage:true});
+  await page.getByRole('button',{name:'Clear filters',exact:true}).click();
+  await expect(page.locator('#hero-title')).toHaveText('The Last Orchard');
+});
+
+test('console settings category rail, keyboard navigation and repeated dismissal', async ({page}, testInfo) => {
+  await page.goto('/?preview=1');
+  const settings = page.getByRole('button',{name:'Settings',exact:true});
+  await settings.click();
+  await expect(page.getByRole('tabpanel',{name:'Emulator',exact:true})).toBeVisible();
+  await expect(page.getByRole('tabpanel',{name:'Launch',exact:true})).not.toBeVisible();
+  await page.getByRole('tab',{name:'Emulator',exact:true}).focus();
+  await page.getByRole('tab',{name:'Emulator',exact:true}).press('ArrowDown');
+  await expect(page.getByRole('tab',{name:'Launch',exact:true})).toBeFocused();
+  await expect(page.getByRole('tabpanel',{name:'Launch',exact:true})).toBeVisible();
+  await page.getByRole('switch',{name:'Come back to Renew',exact:true}).uncheck();
+  await page.screenshot({path:testInfo.outputPath('renew-settings-launch.png'),fullPage:false});
+  await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  await expect(settings).toBeFocused();
+  await settings.click();
+  await page.getByRole('tab',{name:'Launch',exact:true}).click();
+  await expect(page.getByRole('switch',{name:'Come back to Renew',exact:true})).not.toBeChecked();
+  await page.getByRole('dialog').press('Escape');
+  await expect(settings).toBeFocused();
+  await settings.click();
+  await page.getByRole('button',{name:'Done',exact:true}).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(settings).toBeFocused();
 });
