@@ -97,6 +97,12 @@ always-on-top. If the hosted runner has no usable foreground desktop, keep that
 part blocked and use an authorized interactive Windows test environment later.
 Do not force a foreground pass on a service/headless session.
 
+Each native observation/action is a separate 15-second-bounded PowerShell
+invocation with a base64 JSON argument; no persistent stdin/RPC pipe is used.
+Short stderr phase markers are saved with successful samples and included in
+timeout/error details. An explicit Electron HWND bypasses the redundant .NET
+`MainWindowHandle` lookup; its user32 owner/foreground checks remain mandatory.
+
 The JSON receipt is checkpointed at each phase and before cleanup starts, so a
 timeout retains the last observation. Electron close has an explicit deadline;
 last-resort `app.exit(1)` requires the connected main PID and isolated user-data

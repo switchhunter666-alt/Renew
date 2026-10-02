@@ -6,9 +6,9 @@ const fs = require('node:fs/promises');
 const { writeFileSync } = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { spawn } = require('node:child_process');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 const { createHash } = require('node:crypto');
-const { createInterface } = require('node:readline');
 const { _electron: electron } = require('playwright');
 const { expect } = require('@playwright/test');
 const { LauncherService } = require('../../desktop/services.cjs');
@@ -30,42 +30,22 @@ function processExists(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
 }
 
-function startProbe() {
-  const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
-    path.join(__dirname, 'windows-probe.ps1')], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let pending, failure, stderr = '';
-  child.stderr.on('data', data => { stderr = (stderr + data).slice(-8000); });
-  const rejectPending = error => { failure = error; if (pending) { pending.reject(error); pending = null; } };
-  child.once('error', rejectPending);
-  child.stdin.on('error', rejectPending);
-  child.once('exit', code => rejectPending(new Error(`Windows probe exited (${code}): ${stderr}`)));
-  createInterface({ input: child.stdout }).on('line', line => {
-    if (!pending) return;
-    const current = pending; pending = null;
-    try {
-      const value = JSON.parse(line);
-      if (value.error) throw new Error(value.error);
-      current.resolve(value);
-    } catch (error) { current.reject(error); }
-  });
-  return {
-    async request(payload) {
-      if (failure) throw failure;
-      assert.ok(!pending, 'Only one native probe request may be outstanding.');
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { pending = null; child.kill(); reject(new Error('Windows probe timed out.')); }, 15000);
-        pending = { resolve: value => { clearTimeout(timer); resolve(value); },
-          reject: error => { clearTimeout(timer); reject(error); } };
-        child.stdin.write(`${JSON.stringify(payload)}\n`);
-      });
-    },
-    stop() {
-      if (!child.stdin.destroyed) child.stdin.end('{"op":"quit"}\n');
-      child.kill();
-      for (const stream of child.stdio) stream?.destroy?.();
-      child.unref();
-    },
-  };
+const execFileAsync = promisify(execFile);
+async function runProbe(payload) {
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+  let stdout, stderr;
+  try {
+    ({ stdout, stderr } = await execFileAsync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive',
+      '-File', path.join(__dirname, 'windows-probe.ps1'), '-RequestBase64', encoded],
+    { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024, encoding: 'utf8' }));
+  } catch (error) {
+    throw new Error(`Windows probe ${payload.op} failed: ${error.message}\nstderr: ${error.stderr || '(empty)'}\nstdout: ${error.stdout || '(empty)'}`);
+  }
+  try {
+    const value = JSON.parse(stdout.trim());
+    if (value.error) throw new Error(value.error);
+    return { ...value, probePhases: stderr.trim() };
+  } catch (error) { throw new Error(`Windows probe ${payload.op}: ${error.message}\nstderr: ${stderr}`); }
 }
 function usableDesktop(sample) {
   return sample.interactive && sample.sessionId > 0 && sample.desktopReadable &&
@@ -104,7 +84,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     archiveSha256: process.env.RENEW_MGBA_ARCHIVE_SHA256 || null, samples: [], checks: {},
     exclusions: ['physical PC', 'audio', 'controller/input', 'native file pickers', 'packaged executable'] };
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-mgba-'));
-  let application, probe, executable, renewPid, profile;
+  let application, executable, renewPid, profile;
   const checkpoint = phase => {
     evidence.phase = phase;
     (evidence.journal ||= []).push({ phase, time: new Date().toISOString() });
@@ -115,9 +95,9 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     if (evidence.status === 'RUNNING') evidence.status = 'FAIL';
     checkpoint('cleanup:start');
     // Kill only this test's unique copied emulator path if graceful exit did not finish.
-    if (probe && executable) {
+    if (executable) {
       try {
-        evidence.cleanup = await probe.request({ op: 'cleanup', exe: executable });
+        evidence.cleanup = await runProbe({ op: 'cleanup', exe: executable });
         if (evidence.cleanup.count) { evidence.forcedCleanup = true; evidence.status = 'FAIL'; }
       }
       catch (error) { evidence.cleanupError = error.message; }
@@ -157,7 +137,6 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       }
       application = null;
     }
-    if (probe) probe.stop();
     evidence.finishedAt = new Date().toISOString();
     if (evidence.status === 'RUNNING' || evidence.cleanupError || evidence.closeError || evidence.forcedCleanup) evidence.status = 'FAIL';
     checkpoint('cleanup:finished');
@@ -234,8 +213,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     evidence.renewIdentity = { wrapperPid, ...identity };
     checkpoint('electron:identity');
     renewPid = identity.mainPid;
-    probe = startProbe();
-    const sample = capture => probe.request({ op: 'probe', exe: executable, renewPid,
+    const sample = capture => runProbe({ op: 'probe', exe: executable, renewPid,
       renewHandle: identity.handle, wrapperPid, capture });
     let before = await sample();
     evidence.beforePlaySamples = [before];
@@ -296,7 +274,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     }
     // A normal WM_CLOSE asks this owned mGBA window to exit; no process kill is used as pass evidence.
     checkpoint('emulator:close-requested');
-    await probe.request({ op: 'close', exe: executable });
+    await runProbe({ op: 'close', exe: executable });
     await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session,
       { timeout: 15000 }).toBe(null);
     const state = await page.evaluate(() => window.renewAPI.getState());

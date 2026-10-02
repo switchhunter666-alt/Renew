@@ -1,8 +1,13 @@
 # Read-only foreground/capture probe plus graceful close and scoped cleanup.
 # No activation, input injection, always-on-top, desktop switching or policy changes.
+param([Parameter(Mandatory=$true)][string]$RequestBase64)
 $ErrorActionPreference = 'Stop'
+function Trace($phase) { [Console]::Error.WriteLine("probe:$phase") }
+Trace 'start'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Trace 'assemblies'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+Trace 'native-api'
 Add-Type @'
 using System;
 using System.Text;
@@ -24,21 +29,31 @@ public static class RenewWindowProbe {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
 '@
+Trace 'native-ready'
 [void][RenewWindowProbe]::SetProcessDPIAware()
 function Window-State($process, [string]$nativeHandle) {
-  $process.Refresh()
-  $processHandle = $process.MainWindowHandle
-  $handle = if ($nativeHandle) { [IntPtr]::new([long]::Parse($nativeHandle)) } else { $processHandle }
+  Trace 'window:handle'
+  $processHandle = $null
+  if ($nativeHandle) { $handle = [IntPtr]::new([long]::Parse($nativeHandle)) }
+  else {
+    $process.Refresh()
+    $handle = $process.MainWindowHandle
+    $processHandle = $handle.ToInt64().ToString()
+  }
+  Trace 'window:owner'
   [uint32]$ownerPid = 0
   [void][RenewWindowProbe]::GetWindowThreadProcessId($handle, [ref]$ownerPid)
+  Trace 'window:title'
   $title = [Text.StringBuilder]::new(512)
   [void][RenewWindowProbe]::GetWindowText($handle, $title, $title.Capacity)
+  Trace 'window:rect'
   $rect = [RenewWindowProbe+Rect]::new()
   [void][RenewWindowProbe]::GetWindowRect($handle, [ref]$rect)
+  Trace 'window:monitor'
   $screen = [System.Windows.Forms.Screen]::FromHandle($handle).Bounds
   return @{
     pid = $process.Id; ownerPid = $ownerPid; handle = $handle.ToInt64().ToString(); title = $title.ToString()
-    valid = [RenewWindowProbe]::IsWindow($handle); processMainWindowHandle = $processHandle.ToInt64().ToString()
+    valid = [RenewWindowProbe]::IsWindow($handle); processMainWindowHandle = $processHandle
     handleSource = $(if ($nativeHandle) { "Electron BrowserWindow.getNativeWindowHandle" } else { "Process.MainWindowHandle" })
     visible = [RenewWindowProbe]::IsWindowVisible($handle); minimized = [RenewWindowProbe]::IsIconic($handle)
     caption = (([RenewWindowProbe]::GetWindowLong($handle, -16) -band 0x00c00000) -ne 0)
@@ -52,11 +67,12 @@ function Owned-Processes($exe) {
     try { $_.Path -and ([string]::Equals($_.Path, $exe, [StringComparison]::OrdinalIgnoreCase)) } catch { $false }
   })
 }
-while ($line = [Console]::ReadLine()) {
-  try {
-    $request = $line | ConvertFrom-Json
-    if ($request.op -eq 'quit') { break }
+try {
+    $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RequestBase64)) | ConvertFrom-Json
+    Trace ("request:" + $request.op)
+    Trace 'owned-processes'
     $owned = @(Owned-Processes $request.exe)
+    Trace ("owned-count:" + $owned.Count)
     if ($request.op -eq 'close' -or $request.op -eq 'cleanup') {
       foreach ($process in $owned) {
         if ($request.op -eq 'cleanup') {
@@ -69,9 +85,11 @@ while ($line = [Console]::ReadLine()) {
           if (-not [RenewWindowProbe]::PostMessage($process.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'WM_CLOSE failed.' }
         }
       }
+      Trace 'complete'
       @{ ok=$true; count=$owned.Count } | ConvertTo-Json -Compress
-      continue
+      return
     }
+    Trace 'foreground-desktop'
     $foreground = [RenewWindowProbe]::GetForegroundWindow()
     [uint32]$foregroundPid = 0
     [void][RenewWindowProbe]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid)
@@ -88,7 +106,9 @@ while ($line = [Console]::ReadLine()) {
       sessionId=(Get-Process -Id $PID).SessionId; inputDesktop=$desktopName.ToString(); desktopReadable=$desktopReadable
       foregroundPid=$foregroundPid; foregroundHandle=$foreground.ToInt64().ToString(); emulators=@(); wrapperPid=$request.wrapperPid
     }
+    Trace 'renew-window'
     if ($request.renewPid) { $result.renew = Window-State (Get-Process -Id $request.renewPid) $request.renewHandle }
+    Trace 'emulator-windows'
     foreach ($process in $owned) {
       $window = Window-State $process
       $details = Get-CimInstance Win32_Process -Filter "ProcessId=$($process.Id)"
@@ -96,6 +116,7 @@ while ($line = [Console]::ReadLine()) {
       $result.emulators += $window
     }
     if ($request.capture -and $owned.Count -eq 1 -and $foregroundPid -eq $owned[0].Id) {
+      Trace 'capture'
       $w = $result.emulators[0]; $r = $w.rect
       $width = $r.right - $r.left; $height = $r.bottom - $r.top
       if ($width -gt 0 -and $height -gt 0 -and $width -le 8192 -and $height -le 8192) {
@@ -114,6 +135,9 @@ while ($line = [Console]::ReadLine()) {
         finally { $graphics.Dispose(); $bitmap.Dispose() }
       }
     }
+    Trace 'complete'
     $result | ConvertTo-Json -Depth 10 -Compress
-  } catch { @{ error=$_.Exception.Message } | ConvertTo-Json -Compress }
+} catch {
+    Trace 'error'
+    @{ error=$_.Exception.Message } | ConvertTo-Json -Compress
 }
