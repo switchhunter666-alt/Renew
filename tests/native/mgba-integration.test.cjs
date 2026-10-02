@@ -236,7 +236,8 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     await page.getByRole('button', { name: 'Play game', exact: true }).click();
     await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session?.status,
       { timeout: 15000 }).toBe('running');
-    evidence.checks.realSessionRunning = true;
+    Object.assign(evidence.checks, { realSessionRunning: true, romIdentity: false,
+      fullscreenForeground: false, frameProgress: false, cleanExitReturnAndPersistence: false });
     checkpoint('play:session-running');
     const colors = new Set();
     let launched;
@@ -257,21 +258,27 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
         launched = window;
         assert.equal(window.parentPid, renewPid, 'mGBA must be spawned by the actual Electron main process.');
         assert.ok(window.commandLine.includes(rom), 'The actual child command line must contain the exact authored ROM path.');
-        if (window.title.includes('RENEW SMOKE') && window.title.includes('0.10.5') && fullscreen(window) &&
-          current.foregroundPid === window.pid && current.renew.minimized && current.capture) {
-          const color = observedColor(current.capture.pixels);
-          if (color) colors.add(color);
+        if (window.title.includes('RENEW SMOKE') && window.title.includes('0.10.5')) {
+          evidence.checks.romIdentity = true;
+          if (fullscreen(window) && current.foregroundPid === window.pid && current.renew.minimized) {
+            evidence.checks.fullscreenForeground = true;
+            const color = current.capture && observedColor(current.capture.pixels);
+            if (color) colors.add(color);
+          }
         }
       }
       if (colors.size === 3) break;
       await sleep(220);
     }
     evidence.observedColors = [...colors];
+    evidence.checks.frameProgress = colors.size === 3;
+    evidence.checks.fullscreenForegroundFrames = colors.size === 3;
     if (evidence.status !== 'BLOCKED') {
       assert.ok(launched, 'A real test-owned mGBA window must appear.');
-      assert.equal(colors.size, 3, 'Require actual ROM title, fullscreen monitor coverage, mGBA foreground, Renew minimized and all three expected screen colors.');
-      evidence.checks.fullscreenForegroundFrames = true;
+      if (colors.size !== 3) evidence.playbackFailure =
+        'Expected all three ROM colors during verified fullscreen/foreground playback.';
     }
+    checkpoint('play:observations-complete');
     // A normal WM_CLOSE asks this owned mGBA window to exit; no process kill is used as pass evidence.
     checkpoint('emulator:close-requested');
     await runProbe({ op: 'close', exe: executable });
@@ -291,7 +298,10 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     if (!usableDesktop(after)) {
       evidence.status = 'BLOCKED'; evidence.reason = 'Foreground desktop unavailable after emulator close.';
     }
-    if (evidence.status === 'BLOCKED') { t.skip(evidence.reason); return; }
+    if (evidence.status === 'BLOCKED') {
+      if (evidence.playbackFailure) assert.fail(evidence.playbackFailure);
+      t.skip(evidence.reason); return;
+    }
     assert.ok(renewForeground(after, identity), 'The exact Renew HWND must regain OS foreground after mGBA exits.');
     assert.ok(after.renew.visible && !after.renew.minimized, 'Renew must be visible and restored.');
     await page.screenshot({ path: path.join(artifactDirectory, 'renew-returned.png') });
@@ -301,6 +311,9 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     assert.equal(persisted.games[0].playSeconds, state.games[0].playSeconds);
     evidence.checks.cleanExitReturnAndPersistence = true;
     evidence.playSeconds = state.games[0].playSeconds;
+    checkpoint('return:verified');
+    // Keep the full gate strict, but collect normal close/return evidence before a color failure.
+    assert.equal(colors.size, 3, evidence.playbackFailure || 'All three expected ROM colors must be observed.');
     evidence.status = 'PASS';
     checkpoint('verification:passed-before-cleanup');
   } catch (error) {

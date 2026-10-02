@@ -81,6 +81,12 @@ emulator's visible screen rectangle. Use one isolated test at a time.
   process exit, a clean app session result, Renew restored to OS foreground and
   play time persisted. Forced cleanup is never accepted as exit/return evidence
 
+Launch/session, ROM identity, fullscreen/foreground, animated pixels, and normal
+exit/return/persistence have separate receipt fields. A color mismatch is reported
+only after attempting normal close and measuring return, so a fixture/rendering
+problem does not erase independent return evidence. The full test still fails
+unless all required observations pass.
+
 ## Interpreting results
 
 - `PASS`: all bounded real-emulator, actual-pixel and foreground checks passed
