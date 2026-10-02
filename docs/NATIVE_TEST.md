@@ -68,7 +68,11 @@ emulator's visible screen rectangle. Use one isolated test at a time.
   It displays red, green and blue frames, changing every 30 emulated VBlanks
 - The PowerShell helper observes the Windows session, input desktop,
   `GetForegroundWindow`, exact executable path, parent PID, command line,
-  title, visibility, minimized state and monitor/window bounds
+  title, visibility, minimized state and monitor/window bounds. Renew is identified
+  by Electron main-process `process.pid` and its exact
+  `BrowserWindow.getNativeWindowHandle()`; user32 verifies that HWND owner and
+  its foreground/visibility state. The launch-wrapper PID, Electron startup
+  visibility and every raw pre-Play sample are retained for attribution
 - Screen pixels must show all three expected ROM colors while the real mGBA
   title identifies `RENEW SMOKE` and version 0.10.5, mGBA owns OS foreground,
   its captionless window fills a monitor and Renew is minimized

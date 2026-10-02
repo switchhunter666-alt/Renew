@@ -52,6 +52,11 @@ function usableDesktop(sample) {
   return sample.interactive && sample.sessionId > 0 && sample.desktopReadable &&
     sample.inputDesktop.toLowerCase() === 'default' && sample.foregroundPid > 0;
 }
+function renewForeground(sample, identity) {
+  return sample.renew.valid && sample.renew.ownerPid === identity.mainPid &&
+    sample.renew.handle === identity.handle && sample.foregroundHandle === identity.handle &&
+    sample.foregroundPid === identity.mainPid && sample.renew.visible && !sample.renew.minimized;
+}
 function fullscreen(window) {
   return window.visible && !window.minimized && !window.caption &&
     ['left', 'top', 'right', 'bottom'].every(edge => Math.abs(window.rect[edge] - window.monitor[edge]) <= 2);
@@ -133,18 +138,38 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     const bootstrap = path.join(temporary, 'launch.cjs');
     await fs.writeFile(bootstrap, `const {app} = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); require(${JSON.stringify(path.resolve('desktop/main.cjs'))});`);
     application = await electron.launch({ args: [bootstrap], cwd: process.cwd(), timeout: 30000 });
-    renewPid = application.process().pid;
+    const wrapperPid = application.process().pid;
     const page = await application.firstWindow({ timeout: 30000 });
     await expect(page.locator('.game-card')).toHaveCount(1);
+    const electronIdentity = () => application.evaluate(({ BrowserWindow }) => {
+      const windows = BrowserWindow.getAllWindows();
+      if (windows.length !== 1) throw new Error('Expected exactly one Renew BrowserWindow.');
+      const window = windows[0], native = window.getNativeWindowHandle();
+      return { mainPid: process.pid, browserWindowId: window.id,
+        handle: native.length === 8 ? native.readBigInt64LE().toString() : native.readInt32LE().toString(),
+        visible: window.isVisible(), minimized: window.isMinimized() };
+    });
+    let identity = await electronIdentity();
+    evidence.electronStartup = [identity];
+    // Await the app's own ready-to-show/show path; observing does not activate it.
+    for (let attempt = 0; attempt < 20 && !identity.visible; attempt++) {
+      await sleep(250); identity = await electronIdentity(); evidence.electronStartup.push(identity);
+    }
+    evidence.renewIdentity = { wrapperPid, ...identity };
+    renewPid = identity.mainPid;
     probe = startProbe();
-    const sample = capture => probe.request({ op: 'probe', exe: executable, renewPid, capture });
+    const sample = capture => probe.request({ op: 'probe', exe: executable, renewPid,
+      renewHandle: identity.handle, wrapperPid, capture });
     let before = await sample();
+    evidence.beforePlaySamples = [before];
     // Observe natural startup, without focus()/SetForegroundWindow or simulated OS activation.
-    for (let attempt = 0; attempt < 5 && usableDesktop(before) && before.foregroundPid !== renewPid; attempt++) {
-      await sleep(500); before = await sample();
+    for (let attempt = 0; attempt < 5 && usableDesktop(before) && !renewForeground(before, identity); attempt++) {
+      await sleep(500); before = await sample(); evidence.beforePlaySamples.push(before);
     }
     evidence.beforePlay = before;
-    if (!usableDesktop(before) || before.foregroundPid !== renewPid) {
+    assert.ok(before.renew.valid, 'Electron native HWND must identify a live window.');
+    assert.equal(before.renew.ownerPid, renewPid, 'The HWND owner must equal the Electron main-process PID.');
+    if (!usableDesktop(before) || !renewForeground(before, identity)) {
       evidence.status = 'BLOCKED';
       evidence.reason = !usableDesktop(before) ? 'No usable interactive Default foreground desktop.' :
         'Renew was not the foreground window before Play; a user-like handoff baseline was unavailable.';
@@ -196,7 +221,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     assert.equal(state.error, null, 'The real child must exit cleanly.');
     assert.ok(state.games[0].playSeconds >= 1, 'Elapsed session time must be recorded.');
     let after = await sample();
-    for (let attempt = 0; attempt < 10 && usableDesktop(after) && after.foregroundPid !== renewPid; attempt++) {
+    for (let attempt = 0; attempt < 10 && usableDesktop(after) && !renewForeground(after, identity); attempt++) {
       await sleep(300); after = await sample();
     }
     evidence.afterClose = after;
@@ -205,7 +230,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       evidence.status = 'BLOCKED'; evidence.reason = 'Foreground desktop unavailable after emulator close.';
     }
     if (evidence.status === 'BLOCKED') { t.skip(evidence.reason); return; }
-    assert.equal(after.foregroundPid, renewPid, 'Renew must regain OS foreground after mGBA exits.');
+    assert.ok(renewForeground(after, identity), 'The exact Renew HWND must regain OS foreground after mGBA exits.');
     assert.ok(after.renew.visible && !after.renew.minimized, 'Renew must be visible and restored.');
     await page.screenshot({ path: path.join(artifactDirectory, 'renew-returned.png') });
     await application.close(); application = null;

@@ -11,6 +11,8 @@ public static class RenewWindowProbe {
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder text, int max);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out Rect r);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
@@ -23,14 +25,21 @@ public static class RenewWindowProbe {
 }
 '@
 [void][RenewWindowProbe]::SetProcessDPIAware()
-function Window-State($process) {
+function Window-State($process, [string]$nativeHandle) {
   $process.Refresh()
-  $handle = $process.MainWindowHandle
+  $processHandle = $process.MainWindowHandle
+  $handle = if ($nativeHandle) { [IntPtr]::new([long]::Parse($nativeHandle)) } else { $processHandle }
+  [uint32]$ownerPid = 0
+  [void][RenewWindowProbe]::GetWindowThreadProcessId($handle, [ref]$ownerPid)
+  $title = [Text.StringBuilder]::new(512)
+  [void][RenewWindowProbe]::GetWindowText($handle, $title, $title.Capacity)
   $rect = [RenewWindowProbe+Rect]::new()
   [void][RenewWindowProbe]::GetWindowRect($handle, [ref]$rect)
   $screen = [System.Windows.Forms.Screen]::FromHandle($handle).Bounds
   return @{
-    pid = $process.Id; handle = $handle.ToInt64().ToString(); title = $process.MainWindowTitle
+    pid = $process.Id; ownerPid = $ownerPid; handle = $handle.ToInt64().ToString(); title = $title.ToString()
+    valid = [RenewWindowProbe]::IsWindow($handle); processMainWindowHandle = $processHandle.ToInt64().ToString()
+    handleSource = $(if ($nativeHandle) { "Electron BrowserWindow.getNativeWindowHandle" } else { "Process.MainWindowHandle" })
     visible = [RenewWindowProbe]::IsWindowVisible($handle); minimized = [RenewWindowProbe]::IsIconic($handle)
     caption = (([RenewWindowProbe]::GetWindowLong($handle, -16) -band 0x00c00000) -ne 0)
     rect = @{ left=$rect.Left; top=$rect.Top; right=$rect.Right; bottom=$rect.Bottom }
@@ -77,9 +86,9 @@ while ($line = [Console]::ReadLine()) {
     $result = @{
       time=[DateTime]::UtcNow.ToString('o'); interactive=[Environment]::UserInteractive
       sessionId=(Get-Process -Id $PID).SessionId; inputDesktop=$desktopName.ToString(); desktopReadable=$desktopReadable
-      foregroundPid=$foregroundPid; foregroundHandle=$foreground.ToInt64().ToString(); emulators=@()
+      foregroundPid=$foregroundPid; foregroundHandle=$foreground.ToInt64().ToString(); emulators=@(); wrapperPid=$request.wrapperPid
     }
-    if ($request.renewPid) { $result.renew = Window-State (Get-Process -Id $request.renewPid) }
+    if ($request.renewPid) { $result.renew = Window-State (Get-Process -Id $request.renewPid) $request.renewHandle }
     foreach ($process in $owned) {
       $window = Window-State $process
       $details = Get-CimInstance Win32_Process -Filter "ProcessId=$($process.Id)"
