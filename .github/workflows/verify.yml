@@ -78,6 +78,7 @@ jobs:
           "RENEW_MGBA_EXE=$($executables[0].FullName)" >> $env:GITHUB_ENV
           "RENEW_MGBA_ARCHIVE_SHA256=$digest" >> $env:GITHUB_ENV
       - name: Real mGBA integration and foreground evidence
+        timeout-minutes: 4
         run: node --test tests/native/mgba-integration.test.cjs
       - uses: actions/upload-artifact@v4
         if: always()

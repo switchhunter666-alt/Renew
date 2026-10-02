@@ -40,8 +40,9 @@ or added to the Renew package.
 
 The existing `if: always()` upload of `artifacts/native/` also captures this test's
 JSON and screenshots when it fails or is blocked. Keep the CI job timeout (20
-minutes is sufficient); the test itself is limited to three minutes, with shorter
-bounded waits. The recorded archive digest is a provenance receipt, not a claim of
+minutes is sufficient); the test body has a three-minute timeout, with separate
+bounded cleanup waits. A four-minute workflow-step timeout supplies an external
+budget even if the native runtime stops responding. The recorded archive digest is a provenance receipt, not a claim of
 independent checksum authentication. The download trust boundary is the pinned
 release asset linked by the official project. Review the actual download step,
 commit and receipt together.
@@ -95,6 +96,14 @@ windows forcibly, inject OS clicks/keys, attach input threads or make windows
 always-on-top. If the hosted runner has no usable foreground desktop, keep that
 part blocked and use an authorized interactive Windows test environment later.
 Do not force a foreground pass on a service/headless session.
+
+The JSON receipt is checkpointed at each phase and before cleanup starts, so a
+timeout retains the last observation. Electron close has an explicit deadline;
+last-resort `app.exit(1)` requires the connected main PID and isolated user-data
+path to match. Any forced emulator/app termination marks the run `FAIL`. The
+launch wrapper is tracked separately and its exit does not prove Electron exited.
+Constructed and `fs.realpath` canonical emulator/ROM paths are recorded to avoid
+confusing Windows short-path aliases with a different file.
 
 Temporary cleanup targets only the test-created files and exact unique emulator
 path, plus its own Electron/probe processes. On an unconfirmed cleanup error the

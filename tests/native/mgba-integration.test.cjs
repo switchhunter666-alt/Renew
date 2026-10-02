@@ -3,6 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const { writeFileSync } = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
@@ -16,6 +17,18 @@ const { makeSmokeRom } = require('./fixtures/renew-smoke-rom.cjs');
 const ASSET = 'https://github.com/mgba-emu/mgba/releases/download/0.10.5/mGBA-0.10.5-win64.7z';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const sha256 = data => createHash('sha256').update(data).digest('hex');
+async function bounded(promise, milliseconds, label) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${milliseconds}ms.`)), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+function processExists(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
+}
 
 function startProbe() {
   const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
@@ -24,6 +37,7 @@ function startProbe() {
   child.stderr.on('data', data => { stderr = (stderr + data).slice(-8000); });
   const rejectPending = error => { failure = error; if (pending) { pending.reject(error); pending = null; } };
   child.once('error', rejectPending);
+  child.stdin.on('error', rejectPending);
   child.once('exit', code => rejectPending(new Error(`Windows probe exited (${code}): ${stderr}`)));
   createInterface({ input: child.stdout }).on('line', line => {
     if (!pending) return;
@@ -45,7 +59,12 @@ function startProbe() {
         child.stdin.write(`${JSON.stringify(payload)}\n`);
       });
     },
-    stop() { child.stdin.end('{"op":"quit"}\n'); child.kill(); },
+    stop() {
+      if (!child.stdin.destroyed) child.stdin.end('{"op":"quit"}\n');
+      child.kill();
+      for (const stream of child.stdio) stream?.destroy?.();
+      child.unref();
+    },
   };
 }
 function usableDesktop(sample) {
@@ -85,25 +104,73 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     archiveSha256: process.env.RENEW_MGBA_ARCHIVE_SHA256 || null, samples: [], checks: {},
     exclusions: ['physical PC', 'audio', 'controller/input', 'native file pickers', 'packaged executable'] };
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-mgba-'));
-  let application, probe, executable, renewPid;
+  let application, probe, executable, renewPid, profile;
+  const checkpoint = phase => {
+    evidence.phase = phase;
+    (evidence.journal ||= []).push({ phase, time: new Date().toISOString() });
+    writeFileSync(path.join(artifactDirectory, 'result.json'), JSON.stringify(evidence, null, 2));
+  };
+  checkpoint('setup:start');
   t.after(async () => {
+    if (evidence.status === 'RUNNING') evidence.status = 'FAIL';
+    checkpoint('cleanup:start');
     // Kill only this test's unique copied emulator path if graceful exit did not finish.
     if (probe && executable) {
-      try { evidence.cleanup = await probe.request({ op: 'cleanup', exe: executable }); }
+      try {
+        evidence.cleanup = await probe.request({ op: 'cleanup', exe: executable });
+        if (evidence.cleanup.count) { evidence.forcedCleanup = true; evidence.status = 'FAIL'; }
+      }
       catch (error) { evidence.cleanupError = error.message; }
     }
-    if (application) await application.close().catch(error => {
-      evidence.closeError = error.message; application.process().kill();
-    });
+    checkpoint('cleanup:emulator-finished');
+    if (application) {
+      const wrapper = application.process();
+      try { await bounded(application.close(), 8000, 'Electron cleanup close'); }
+      catch (error) {
+        evidence.closeError = error.message; evidence.forcedCleanup = true; evidence.status = 'FAIL';
+        checkpoint('cleanup:electron-force-exit');
+        try {
+          const expected = { pid: renewPid, profile };
+          const owned = await bounded(application.evaluate(({ app }, expected) => {
+            if (process.pid !== expected.pid || app.getPath('userData') !== expected.profile) {
+              throw new Error('Refusing force exit: Electron identity/profile mismatch.');
+            }
+            return { pid: process.pid, profile: app.getPath('userData') };
+          }, expected), 3000, 'Electron ownership check');
+          evidence.forcedElectronIdentity = owned;
+          checkpoint('cleanup:electron-exit-requested');
+          await bounded(application.evaluate(({ app }, expected) => {
+            if (process.pid !== expected.pid || app.getPath('userData') !== expected.profile) {
+              throw new Error('Refusing force exit: Electron identity/profile mismatch.');
+            }
+            app.exit(1);
+          }, expected), 3000, 'Owned Electron exit').catch(exitError => {
+            evidence.exitTransportMessage = exitError.message;
+          });
+        } catch (exitError) { evidence.forceExitError = exitError.message; }
+        for (let attempt = 0; attempt < 10 && processExists(renewPid); attempt++) await sleep(250);
+        evidence.electronStillRunning = processExists(renewPid);
+        // The launcher wrapper is separately owned; killing it alone is not proof of app exit.
+        if (wrapper.exitCode === null) wrapper.kill();
+        for (const stream of wrapper.stdio || []) stream?.destroy?.();
+        wrapper.unref();
+      }
+      application = null;
+    }
     if (probe) probe.stop();
     evidence.finishedAt = new Date().toISOString();
-    if (evidence.status === 'RUNNING' || evidence.cleanupError || evidence.closeError) evidence.status = 'FAIL';
-    await fs.writeFile(path.join(artifactDirectory, 'result.json'), JSON.stringify(evidence, null, 2));
+    if (evidence.status === 'RUNNING' || evidence.cleanupError || evidence.closeError || evidence.forcedCleanup) evidence.status = 'FAIL';
+    checkpoint('cleanup:finished');
     // Remove only our own temporary tree. Retain it when cleanup was unconfirmed.
     if (!evidence.cleanupError && !evidence.closeError) {
-      await fs.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+      try {
+        await bounded(fs.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }), 5000, 'Temporary cleanup');
+      } catch (error) {
+        evidence.status = 'FAIL'; evidence.fileCleanupError = error.message; checkpoint('cleanup:file-error'); throw error;
+      }
     }
-    assert.ok(!evidence.cleanupError && !evidence.closeError, 'Test-owned process cleanup must be confirmed.');
+    assert.ok(!evidence.cleanupError && !evidence.closeError && !evidence.forcedCleanup,
+      'Cleanup must finish without forced termination; forced cleanup is never pass evidence.');
   });
   try {
     assert.ok(process.env.RENEW_MGBA_EXE, 'Set RENEW_MGBA_EXE to the official extracted mGBA 0.10.5 executable; see docs/NATIVE_TEST.md.');
@@ -111,14 +178,18 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     assert.match(path.basename(source), /^mgba\.exe$/i);
     const copy = path.join(temporary, 'official mGBA');
     await fs.cp(path.dirname(source), copy, { recursive: true });
-    executable = path.join(copy, path.basename(source));
+    const executablePath = path.join(copy, path.basename(source));
+    executable = await fs.realpath(executablePath);
+    evidence.testPaths = { executable: { constructed: executablePath, canonical: executable } };
     evidence.executableSha256 = sha256(await fs.readFile(executable));
     await fs.writeFile(path.join(copy, 'portable.ini'), '');
     // Portable, test-owned config only. Do not alter desktop/session/focus policies.
     await fs.writeFile(path.join(copy, 'config.ini'), 'useBios=0\nskipBios=1\nshowFps=1\ndynamicTitle=1\nshowFilename=0\n');
-    const rom = path.join(temporary, 'Renew smoke animation.gba');
+    const romPath = path.join(temporary, 'Renew smoke animation.gba');
     const bytes = makeSmokeRom();
-    await fs.writeFile(rom, bytes);
+    await fs.writeFile(romPath, bytes);
+    const rom = await fs.realpath(romPath);
+    evidence.testPaths.rom = { constructed: romPath, canonical: rom };
     evidence.rom = { title: 'RENEW SMOKE', size: bytes.length, sha256: sha256(bytes),
       expectedFrames: ['red', 'green', 'blue'], provenance: 'Original logo-free test fixture generated from source.' };
     evidence.sourceSha256 = {};
@@ -127,8 +198,10 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       'tests/native/mgba-integration.test.cjs', 'tests/native/windows-probe.ps1', 'tests/native/fixtures/renew-smoke-rom.cjs']) {
       evidence.sourceSha256[file] = sha256(await fs.readFile(file));
     }
-    const profile = path.join(temporary, 'profile');
+    profile = path.join(temporary, 'profile');
     await fs.mkdir(profile);
+    profile = await fs.realpath(profile);
+    checkpoint('fixture:ready');
     // Use the real service for setup; dialogs are outside this test's coverage.
     const seed = new LauncherService({ statePath: path.join(profile, 'library.json') });
     await seed.initialize();
@@ -137,8 +210,11 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     await seed.updateSettings({ fullscreen: true, returnToLauncher: true });
     const bootstrap = path.join(temporary, 'launch.cjs');
     await fs.writeFile(bootstrap, `const {app} = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); require(${JSON.stringify(path.resolve('desktop/main.cjs'))});`);
+    checkpoint('electron:launch');
     application = await electron.launch({ args: [bootstrap], cwd: process.cwd(), timeout: 30000 });
     const wrapperPid = application.process().pid;
+    application.context().setDefaultTimeout(10000);
+    checkpoint('electron:connected');
     const page = await application.firstWindow({ timeout: 30000 });
     await expect(page.locator('.game-card')).toHaveCount(1);
     const electronIdentity = () => application.evaluate(({ BrowserWindow }) => {
@@ -156,6 +232,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       await sleep(250); identity = await electronIdentity(); evidence.electronStartup.push(identity);
     }
     evidence.renewIdentity = { wrapperPid, ...identity };
+    checkpoint('electron:identity');
     renewPid = identity.mainPid;
     probe = startProbe();
     const sample = capture => probe.request({ op: 'probe', exe: executable, renewPid,
@@ -167,6 +244,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       await sleep(500); before = await sample(); evidence.beforePlaySamples.push(before);
     }
     evidence.beforePlay = before;
+    checkpoint('foreground:baseline');
     assert.ok(before.renew.valid, 'Electron native HWND must identify a live window.');
     assert.equal(before.renew.ownerPid, renewPid, 'The HWND owner must equal the Electron main-process PID.');
     if (!usableDesktop(before) || !renewForeground(before, identity)) {
@@ -176,10 +254,12 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       t.skip(evidence.reason); return;
     }
     await page.screenshot({ path: path.join(artifactDirectory, 'renew-before.png') });
+    checkpoint('play:requested');
     await page.getByRole('button', { name: 'Play game', exact: true }).click();
     await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session?.status,
       { timeout: 15000 }).toBe('running');
     evidence.checks.realSessionRunning = true;
+    checkpoint('play:session-running');
     const colors = new Set();
     let launched;
     const deadline = Date.now() + 25000;
@@ -187,6 +267,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       const shot = path.join(artifactDirectory, `frame-${evidence.samples.length}.png`);
       const current = await sample(shot);
       evidence.samples.push(current);
+      checkpoint('play:sample');
       if (!usableDesktop(current) || current.captureError) {
         evidence.status = 'BLOCKED'; evidence.reason = current.captureError ? `Screen pixels unavailable: ${current.captureError}` :
           'The interactive foreground desktop became unavailable during playback.';
@@ -214,10 +295,12 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       evidence.checks.fullscreenForegroundFrames = true;
     }
     // A normal WM_CLOSE asks this owned mGBA window to exit; no process kill is used as pass evidence.
+    checkpoint('emulator:close-requested');
     await probe.request({ op: 'close', exe: executable });
     await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session,
       { timeout: 15000 }).toBe(null);
     const state = await page.evaluate(() => window.renewAPI.getState());
+    checkpoint('emulator:session-finished');
     assert.equal(state.error, null, 'The real child must exit cleanly.');
     assert.ok(state.games[0].playSeconds >= 1, 'Elapsed session time must be recorded.');
     let after = await sample();
@@ -225,6 +308,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
       await sleep(300); after = await sample();
     }
     evidence.afterClose = after;
+    checkpoint('foreground:return');
     assert.equal(after.emulators.length, 0, 'mGBA must actually exit.');
     if (!usableDesktop(after)) {
       evidence.status = 'BLOCKED'; evidence.reason = 'Foreground desktop unavailable after emulator close.';
@@ -233,13 +317,15 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     assert.ok(renewForeground(after, identity), 'The exact Renew HWND must regain OS foreground after mGBA exits.');
     assert.ok(after.renew.visible && !after.renew.minimized, 'Renew must be visible and restored.');
     await page.screenshot({ path: path.join(artifactDirectory, 'renew-returned.png') });
-    await application.close(); application = null;
+    checkpoint('electron:close-requested');
+    await bounded(application.close(), 8000, 'Electron final close'); application = null;
     const persisted = JSON.parse(await fs.readFile(path.join(profile, 'library.json'), 'utf8'));
     assert.equal(persisted.games[0].playSeconds, state.games[0].playSeconds);
     evidence.checks.cleanExitReturnAndPersistence = true;
     evidence.playSeconds = state.games[0].playSeconds;
     evidence.status = 'PASS';
+    checkpoint('verification:passed-before-cleanup');
   } catch (error) {
-    evidence.status = 'FAIL'; evidence.error = error.stack; throw error;
+    evidence.status = 'FAIL'; evidence.error = error.stack; checkpoint('verification:error'); throw error;
   }
 });
