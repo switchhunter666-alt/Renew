@@ -52,7 +52,8 @@ test('supported narrow window retains named navigation and no horizontal overflo
   const badge = await page.locator('.card-favorite').first().boundingBox();
   expect(badge.y).toBeGreaterThanOrEqual(art.y);
   expect(badge.y+badge.height).toBeLessThan(art.y+art.height);
-  await expect(page.locator('#toast')).toBeHidden();
+  // The app dismisses notifications after 5 seconds; leave room for browser scheduling.
+  await expect(page.locator('#toast')).toBeHidden({timeout:10000});
   await page.screenshot({path:testInfo.outputPath('renew-narrow-preview.png'),fullPage:true});
 });
 
