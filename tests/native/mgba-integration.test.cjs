@@ -75,7 +75,7 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
   const artifactDirectory = path.resolve('artifacts/native/mgba');
   await fs.mkdir(artifactDirectory, { recursive: true });
   for (const name of await fs.readdir(artifactDirectory)) {
-    if (/^(?:result\.json|frame-\d+\.png|renew-(?:before|returned)\.png)$/.test(name)) {
+    if (/^(?:result\.json|frame-(?:\d+|close-timeout)\.png|renew-(?:before|returned)\.png)$/.test(name)) {
       await fs.rm(path.join(artifactDirectory, name));
     }
   }
@@ -162,8 +162,16 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     evidence.testPaths = { executable: { constructed: executablePath, canonical: executable } };
     evidence.executableSha256 = sha256(await fs.readFile(executable));
     await fs.writeFile(path.join(copy, 'portable.ini'), '');
-    // Portable, test-owned config only. Do not alter desktop/session/focus policies.
-    await fs.writeFile(path.join(copy, 'config.ini'), 'useBios=0\nskipBios=1\nshowFps=1\ndynamicTitle=1\nshowFilename=0\n');
+    // Portable, test-owned config only. Qt's software display avoids depending
+    // on an accelerated OpenGL driver in the hosted Windows VM. This does not
+    // alter Renew's launch path or the user's mGBA/desktop configuration.
+    const coreConfig = 'useBios=0\nskipBios=1\nshowFps=1\ndynamicTitle=1\nshowFilename=0\n';
+    const qtConfig = '[General]\ndisplayDriver=0\n';
+    await fs.writeFile(path.join(copy, 'config.ini'), coreConfig);
+    await fs.writeFile(path.join(copy, 'qt.ini'), qtConfig);
+    evidence.emulatorConfiguration = { displayDriver: 'Qt software (0)',
+      scope: 'Isolated portable test copy only; default OpenGL display is not qualified.',
+      configIniSha256: sha256(coreConfig), qtIniSha256: sha256(qtConfig) };
     const romPath = path.join(temporary, 'Renew smoke animation.gba');
     const bytes = makeSmokeRom();
     await fs.writeFile(romPath, bytes);
@@ -281,9 +289,23 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     checkpoint('play:observations-complete');
     // A normal WM_CLOSE asks this owned mGBA window to exit; no process kill is used as pass evidence.
     checkpoint('emulator:close-requested');
-    await runProbe({ op: 'close', exe: executable });
-    await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session,
-      { timeout: 15000 }).toBe(null);
+    evidence.closeRequest = await runProbe({ op: 'close', exe: executable,
+      emulatorPid: launched?.pid, emulatorHandle: launched?.handle });
+    checkpoint('emulator:close-posted');
+    try {
+      await expect.poll(async () => (await page.evaluate(() => window.renewAPI.getState())).session,
+        { timeout: 15000 }).toBe(null);
+    } catch (error) {
+      // Preserve the actual post-close window and session before any cleanup.
+      // A successful PostMessage only means WM_CLOSE was queued, not that the
+      // emulator exited or Renew regained foreground.
+      try {
+        evidence.afterCloseTimeout = await sample(path.join(artifactDirectory, 'frame-close-timeout.png'));
+        evidence.sessionAfterCloseTimeout = (await page.evaluate(() => window.renewAPI.getState())).session;
+      } catch (diagnosticError) { evidence.closeTimeoutDiagnosticError = diagnosticError.message; }
+      checkpoint('emulator:close-timeout');
+      throw error;
+    }
     const state = await page.evaluate(() => window.renewAPI.getState());
     checkpoint('emulator:session-finished');
     assert.equal(state.error, null, 'The real child must exit cleanly.');

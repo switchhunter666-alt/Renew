@@ -74,19 +74,26 @@ try {
     $owned = @(Owned-Processes $request.exe)
     Trace ("owned-count:" + $owned.Count)
     if ($request.op -eq 'close' -or $request.op -eq 'cleanup') {
+      $closeTargets = @()
+      if ($request.op -eq 'close' -and $owned.Count -ne 1) { throw 'Expected exactly one test-owned emulator to close.' }
       foreach ($process in $owned) {
         if ($request.op -eq 'cleanup') {
           $process.Kill()
           if (-not $process.WaitForExit(5000)) { throw 'Owned emulator did not exit during cleanup.' }
         }
         else {
-          $process.Refresh()
-          if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Owned emulator has no closeable window.' }
-          if (-not [RenewWindowProbe]::PostMessage($process.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'WM_CLOSE failed.' }
+          if (-not $request.emulatorPid -or $process.Id -ne $request.emulatorPid -or -not $request.emulatorHandle) {
+            throw 'Observed emulator identity is required for close.'
+          }
+          $window = Window-State $process $request.emulatorHandle
+          if (-not $window.valid -or $window.ownerPid -ne $process.Id) { throw 'Observed emulator window owner changed before close.' }
+          $handle = [IntPtr]::new([long]::Parse($request.emulatorHandle))
+          if (-not [RenewWindowProbe]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'WM_CLOSE failed.' }
+          $closeTargets += @{ pid=$process.Id; handle=$request.emulatorHandle; title=$window.title; message='WM_CLOSE'; posted=$true }
         }
       }
       Trace 'complete'
-      @{ ok=$true; count=$owned.Count } | ConvertTo-Json -Compress
+      @{ ok=$true; count=$owned.Count; closeTargets=$closeTargets } | ConvertTo-Json -Depth 5 -Compress
       return
     }
     Trace 'foreground-desktop'
