@@ -13,7 +13,7 @@ test('rendered preview: search, selection, favorites, dialogs, settings and empt
   await page.getByRole('searchbox',{name:'Find a game'}).fill('');
   await page.getByRole('button',{name:'Select Between the Tides',exact:true}).click();
   await expect(page.locator('#hero-title')).toHaveText('Between the Tides');
-  await page.getByRole('button',{name:'Play game'}).click();
+  await page.getByRole('button',{name:'Play game',exact:true}).click();
   await expect(page.getByRole('dialog')).toContainText('does not launch an emulator');
   await page.getByRole('button',{name:'Got it',exact:true}).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -54,6 +54,7 @@ test('concept C menu collapses, keeps keyboard focus and remembers the choice',a
   await toggle.focus();await toggle.press('Enter');
   const collapse=page.getByRole('button',{name:'Collapse navigation menu',exact:true});
   await expect(collapse).toBeFocused();await expect(collapse).toHaveAttribute('aria-expanded','true');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('renew-menu-expanded.png'),fullPage:true});
   await page.reload();await expect(page.getByRole('button',{name:'Collapse navigation menu',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Collapse navigation menu',exact:true}).click();

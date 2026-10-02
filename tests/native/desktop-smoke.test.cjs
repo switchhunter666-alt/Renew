@@ -36,6 +36,14 @@ test('Windows Electron boots its real preload, persists settings and displays na
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.locator('.preview-pill').count(), 0);
   assert.equal(await page.locator('.game-card').count(), 0);
+  await page.getByRole('button', { name: 'Maximize or restore', exact: true }).click();
+  await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(true);
+  await page.getByRole('button', { name: 'Maximize or restore', exact: true }).click();
+  await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(false);
+  await page.getByRole('button', { name: 'Minimize', exact: true }).click();
+  await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized())).toBe(true);
+  // Restore this test-owned window to continue; this is not a taskbar interaction claim.
+  await application.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.restore(); win.show(); win.focus(); });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('switch', { name: 'Start games fullscreen' }).uncheck();
   await expect(page.getByRole('switch', { name: 'Start games fullscreen' })).toBeEnabled();
@@ -63,7 +71,9 @@ test('Windows Electron boots its real preload, persists settings and displays na
   await expect(page.getByRole('dialog')).toContainText('Choose your mGBA executable');
   await page.getByRole('button', { name: 'Got it', exact: true }).click();
   await page.screenshot({ path: path.join(artifactDirectory, 'renew-windows-library-fixture.png') });
-  await application.close(); application = null;
+  const closed = application.waitForEvent('close');
+  await page.getByRole('button', { name: 'Close Renew', exact: true }).click();
+  await closed; application = null;
   const after = JSON.parse(await fs.readFile(stateFile, 'utf8'));
   assert.equal(after.games[0].title, 'Renamed launch-check fixture');
   assert.equal(after.games[0].playSeconds, 0, 'No emulator was launched or gameplay credited.');
