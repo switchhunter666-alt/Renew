@@ -37,7 +37,7 @@ No runtime dependency, library schema, emulator-session implementation, artwork,
 
 ## Verification gates
 
-Local source checks on the completed implementation: `npm run verify` passes **214 tests**, with no failures or skips. These include preference defaults, malformed/denied storage, reset isolation, uncapped unplayed selection, escaping, bounded matches, source text contrast, pending/session/stale command guards, focus, IME/repeat, device errors, stale responses and trusted IPC. jsdom and injected collector tests are source/contract checks, not native-device qualification.
+Local source checks on the completed implementation: `npm run verify` passes **215 tests**, with no failures or skips. These include preference defaults, malformed/denied storage, reset isolation, uncapped unplayed selection, escaping, bounded matches, source text contrast, pending/session/stale command guards, focus, IME/repeat, device errors, stale responses and trusted IPC. jsdom and injected collector tests are source/contract checks, not native-device qualification.
 
 `npm run test:e2e -- --list` discovers **14 Chromium cases** (10 existing plus 4 Power user cases). Discovery is not a browser pass. New real-browser cases exercise actual switches, reload persistence, command search and keyboard activation, preview launch errors, select-only picking, every scene palette at 980×680, reset and explicitly unavailable preview information. The known local browser restriction was not bypassed; exact-revision CI must run these and the screenshots must be inspected.
 

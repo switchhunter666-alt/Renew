@@ -17,6 +17,10 @@ test('Windows Electron boots its real preload, persists settings and displays na
   const profile = path.join(temporary, 'profile');
   await fs.mkdir(profile);
   const bootstrap = path.join(temporary, 'launch.cjs');
+  const packageMetadata = JSON.parse(await fs.readFile(path.resolve('package.json'), 'utf8'));
+  // Launch a package directory, as npm start does, so app.getVersion() is Renew's
+  // package version rather than the Electron executable's fallback version.
+  await fs.writeFile(path.join(temporary, 'package.json'), JSON.stringify({name: packageMetadata.name, version: packageMetadata.version, main: 'launch.cjs'}));
   await fs.writeFile(bootstrap, `const {app} = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); require(${JSON.stringify(path.resolve('desktop/main.cjs'))});`);
   let application;
   t.after(async () => {
@@ -24,7 +28,7 @@ test('Windows Electron boots its real preload, persists settings and displays na
     await fs.rm(temporary, { recursive: true, force: true });
   });
   const launch = async () => {
-    application = await electron.launch({ args: [bootstrap], cwd: process.cwd(), timeout: 30000 });
+    application = await electron.launch({ args: [temporary], cwd: process.cwd(), timeout: 30000 });
     const page = await application.firstWindow({ timeout: 30000 });
     await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Library', exact: true }).click();
@@ -54,6 +58,7 @@ test('Windows Electron boots its real preload, persists settings and displays na
     renewVersion: app.getVersion(), electronVersion: process.versions.electron,
   }));
   expectedRuntime.reportedSystemVersion = os.release();
+  assert.equal(expectedRuntime.renewVersion, packageMetadata.version, 'The native smoke loads the actual Renew package identity.');
   const deviceInfo = await page.evaluate(() => window.renewAPI.getDeviceInfo());
   assert.deepEqual(Object.keys(deviceInfo).sort(), ['version', ...Object.keys(expectedRuntime)].sort());
   assert.equal(deviceInfo.version, 1);

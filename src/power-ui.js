@@ -69,6 +69,8 @@ export function bindCommandPalette({dialog, showDialog, closeDialog, getCommands
   search.addEventListener('input', refresh);
   results.addEventListener('click', event => { const button = event.target.closest('[data-power-command]'); if (button && !button.disabled) activate(button.dataset.powerCommand); });
   dialog.onkeydown = event => {
+    // Native search inputs consume Escape to clear text before dialog cancellation.
+    if (event.key === 'Escape' && !event.isComposing && !event.repeat) { event.preventDefault(); event.stopPropagation(); closeDialog(); return; }
     // Consume Enter before the dialog closes so it cannot reach body-level launch.
     if (event.key === 'Enter') {
       event.preventDefault(); event.stopPropagation();

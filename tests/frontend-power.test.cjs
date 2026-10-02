@@ -146,3 +146,10 @@ test('master off and reset clear device facts and invalidate pending reads',asyn
 test('device failures are recoverable and do not expose raw error details',async()=>{
   let count=0;await setup({power:enabled,methods:{getDeviceInfo:async()=>{if(++count===1)throw new Error('C:/Users/private/secret');return fixtureInfo();}}});settings();click('#read-device');await settle();assert.match(node('#device-info').textContent,/unavailable/);assert.doesNotMatch(node('#device-info').textContent,/private|secret/);assert.equal(node('#read-device').disabled,false);click('#read-device');await settle();assert.match(node('#device-info').textContent,/win32/);
 });
+
+test('palette Escape closes a nonempty search explicitly, preserves the library query and restores its trigger',async()=>{
+  await setup({power:enabled});const librarySearch=node('#search');librarySearch.value='Game 9';librarySearch.dispatchEvent(new window.Event('input',{bubbles:true}));
+  open();input('No such command');key('Escape',{isComposing:true});key('Escape',{repeat:true});assert.equal(node('#dialog').open,true);
+  assert.equal(key('Escape'),false,'Prevents the browser search-input clear action.');
+  assert.equal(node('#dialog').open,false);assert.equal(document.activeElement.dataset.focus,'palette');assert.equal(node('#search').value,'Game 9');assert.equal(document.querySelectorAll('.game-card').length,1);
+});
