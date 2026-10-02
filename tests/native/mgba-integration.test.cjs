@@ -82,7 +82,8 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
   const evidence = { status: 'RUNNING', commit: process.env.GITHUB_SHA || null, os: os.release(),
     platform: process.platform, architecture: process.arch, mgbaVersion: '0.10.5', asset: ASSET,
     archiveSha256: process.env.RENEW_MGBA_ARCHIVE_SHA256 || null, samples: [], checks: {},
-    exclusions: ['physical PC', 'audio', 'controller/input', 'native file pickers', 'packaged executable'] };
+    exclusions: ['physical PC', 'audio', 'audio synchronization', 'real-time frame pacing',
+      'default OpenGL display', 'controller/input', 'native file pickers', 'packaged executable'] };
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-mgba-'));
   let application, executable, renewPid, profile;
   const checkpoint = phase => {
@@ -165,12 +166,16 @@ test('real mGBA: Play hands off fullscreen, authored ROM advances, closing retur
     // Portable, test-owned config only. Qt's software display avoids depending
     // on an accelerated OpenGL driver in the hosted Windows VM. This does not
     // alter Renew's launch path or the user's mGBA/desktop configuration.
-    const coreConfig = 'useBios=0\nskipBios=1\nshowFps=1\ndynamicTitle=1\nshowFilename=0\n';
+    // Audio consumption can stall the emulation thread on hosted VMs. This
+    // pixel/foreground gate is deliberately unsynchronized; it does not test
+    // audio or real-time frame pacing. Keep every RGB observation mandatory.
+    const coreConfig = 'useBios=0\nskipBios=1\nshowFps=1\ndynamicTitle=1\nshowFilename=0\naudioSync=0\nvideoSync=0\n';
     const qtConfig = '[General]\ndisplayDriver=0\n';
     await fs.writeFile(path.join(copy, 'config.ini'), coreConfig);
     await fs.writeFile(path.join(copy, 'qt.ini'), qtConfig);
     evidence.emulatorConfiguration = { displayDriver: 'Qt software (0)',
-      scope: 'Isolated portable test copy only; default OpenGL display is not qualified.',
+      audioSync: false, videoSync: false,
+      scope: 'Isolated portable test copy only; audio synchronization, real-time pacing and default OpenGL display are not qualified.',
       configIniSha256: sha256(coreConfig), qtIniSha256: sha256(qtConfig) };
     const romPath = path.join(temporary, 'Renew smoke animation.gba');
     const bytes = makeSmokeRom();
