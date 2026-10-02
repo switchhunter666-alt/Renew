@@ -15,24 +15,32 @@ No runtime backend, IPC, persistence, native process launch or package configura
 
 ## Validation
 
-- JavaScript syntax and full service/security/model/DOM suite: **139 passed, 0 failed, 0 skipped**.
-- Focused actual-frontend control suite: **70 passed, 0 failed**.
+- JavaScript syntax and full service/security/model/DOM suite: **140 passed, 0 failed, 0 skipped**.
+- Focused actual-frontend control suite: **71 passed, 0 failed**.
 - All five filtered-selection regressions were integrated, including zero matches and pending/running launch guards.
 - Six console-settings regressions cover category state, keyboard navigation, responsive orientation, pending-operation locking/dismissal, failed-write rollback, and later dialogs clearing settings-only styling.
 - Historical overview-only checks were updated for the new hero/details/scene structure. The removed duplicate empty-overview import is no longer counted; remaining import entry points retain their tests. The control inventory now includes the two category tabs.
 - Static review checked the source diff and corrected a long-title favorite-badge positioning issue and responsive tab-orientation mismatch.
 - Original source worktrees were left untouched; integration happened in a separate snapshot.
 
-## Rendering and native limits
+## First integrated CI milestone
+
+The first integrated revision `f83115a` completed [workflow run 37068724714](https://github.com/switchhunter666-alt/Renew/actions/runs/37068724714) successfully: Linux and Windows unit/DOM checks, all seven Chromium cases, Windows Electron smoke, the authored-ROM mGBA gate, and unsigned portable packaging. Its eight browser screenshots were downloaded, their archive digest checked, and actual pixels inspected. The Library and Emulator/Launch settings screenshots showed the intended art-led layout.
+
+The native receipt reports PASS, red/blue/green frames, foreground/fullscreen handoff, normal emulator exit, restored Renew focus and 14 seconds of persisted play time. CI used synthetic PR merge `8dac4f9`, whose Git tree `152527d140d9bde4354b08bde7e25d6a7cf51af9` exactly matches the published head. Its nine source hashes match the Windows CRLF checkout of that tree. This remains a hosted-VM software-display, unsynchronized test fixture; audio, controller/input, physical-PC behavior and the packaged executable itself are excluded.
+
+The synthetic 160-character title screenshot revealed excessive vertical wrapping. A bounded follow-up caps visible hero/cover/card-title lines while retaining full DOM/accessibility text, tooltips and the editable full name. Rendered geometry assertions now cover that case. This follow-up requires its own exact-revision CI result; the earlier green milestone is not reused as a pass for changed code.
+
+## Local rendering and native limits
 
 The local browser test command was attempted. The initial five cases could not start because the pinned Playwright Chromium headless executable was absent; the documented official browser installer then returned invalid/truncated archives. The installed system Chromium (154.0.8037.57) was verified and selected through a local `RENEW_TEST_CHROMIUM` override. All seven current cases still failed before rendering because Chromium’s required process-singleton Unix socket was denied (`Operation not permitted`). A reviewed execution retry with an isolated test profile had the same result. The rendered suite therefore remains unverified; these are environment startup failures rather than observed UI assertion failures.
 
 The cloud browser also rejected the loopback preview with `net::ERR_BLOCKED_BY_CLIENT`. No alternate network route was used. Local Electron had no installed binary. Therefore:
 
-- No rendered browser pass, screenshot, pixel-fidelity assessment or visual hit-target verification is claimed.
+- No local rendered browser pass or local screenshot is claimed; the CI milestone above supplies separate rendered evidence.
 - The source reference art was inspected, but a design reference is not a screenshot of this implementation.
-- Windows desktop smoke selectors were updated for the Library heading and Launch category. The Windows smoke, actual mGBA tests, packaging and CI were **not run against this snapshot**.
-- No private game content was used, and no source publication or merge occurred during this integration.
+- Windows desktop smoke selectors were updated for the Library heading and Launch category. The Windows smoke, actual mGBA tests and packaging ran in the CI milestone described above; each subsequent source revision still needs its own CI gate.
+- No private game content was used. The integrated source was published to the existing draft PR by a nonforce update; no PR merge occurred.
 
 ## Next validation gate
 

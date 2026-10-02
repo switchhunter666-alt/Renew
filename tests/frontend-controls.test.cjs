@@ -654,3 +654,17 @@ test('console settings: narrow preview switches tab orientation and uses Left/Ri
   document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
   assert.equal(document.activeElement.id, 'settings-tab-emulator');
 });
+test('art-led titles: full long display names remain accessible when their visual layout is bounded', async () => {
+  const longTitle = 'A'.repeat(160);
+  const context = await setup({ games: [{ ...fixtureGames()[0], title: longTitle }] });
+  assert.equal(node('#hero-title').textContent, longTitle);
+  assert.equal(node('#hero-title').getAttribute('title'), longTitle);
+  assert.equal(node('.card-title').textContent, longTitle);
+  assert.equal(node('.card-title').getAttribute('title'), longTitle);
+  assert.equal(node('.game-art-button').getAttribute('aria-label'), `Select ${longTitle}`);
+  assert.equal(node('.cover-wordmark').getAttribute('aria-hidden'), 'true');
+  click('[aria-label="Edit selected game details"]');
+  assert.equal(node('#game-title').value, longTitle);
+  assert.equal(node('#dialog-title').textContent, longTitle);
+  assert.equal(callCount(context, 'updateGame'), 0);
+});

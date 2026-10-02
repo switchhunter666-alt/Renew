@@ -40,6 +40,19 @@ test('supported narrow window retains named navigation and no horizontal overflo
   await page.getByRole('textbox',{name:'Display name'}).fill('A'.repeat(160));
   await page.getByRole('button',{name:'Save name'}).click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await expect(page.locator('#hero-title')).toHaveAccessibleName('A'.repeat(160));
+  await expect(page.locator('#hero-title')).toHaveAttribute('title','A'.repeat(160));
+  await expect(page.locator('.card-title').first()).toHaveAccessibleName('A'.repeat(160));
+  for (const [selector, lines] of [['#hero-title',3],['.cover-wordmark',3],['.card-title',2]]) {
+    const box = await page.locator(selector).first().evaluate(element => ({height:element.getBoundingClientRect().height,lineHeight:parseFloat(getComputedStyle(element).lineHeight),scrollHeight:element.scrollHeight}));
+    expect(box.height).toBeLessThanOrEqual(box.lineHeight*lines+2);
+    expect(box.scrollHeight).toBeGreaterThan(box.height);
+  }
+  const art = await page.locator('.game-art-button').first().boundingBox();
+  const badge = await page.locator('.card-favorite').first().boundingBox();
+  expect(badge.y).toBeGreaterThanOrEqual(art.y);
+  expect(badge.y+badge.height).toBeLessThan(art.y+art.height);
+  await expect(page.locator('#toast')).toBeHidden();
   await page.screenshot({path:testInfo.outputPath('renew-narrow-preview.png'),fullPage:true});
 });
 
