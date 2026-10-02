@@ -10,6 +10,7 @@
 - Let restrained accents follow the selected game's assigned original local artwork
 - Expand or collapse the navigation rail; Renew remembers this presentation choice
 - Use console-style Emulator and Launch settings with large rows and descriptions
+- Opt into a guarded command palette and read-only runtime information from Power user settings; both switches start off
 - Choose an existing mGBA `.exe`; launch with literal arguments and no shell
 - Track the launched child process, prevent overlapping launches, and restore Renew on exit when enabled
 - Store the library atomically in the app's user-data folder; preserve corrupt data and refuse unsafe writes
@@ -63,8 +64,12 @@ CI runs unit/DOM checks on Linux and Windows, renders the preview in Chromium, s
 - `src/app.js`: UI interactions and dialog lifecycle
 - `src/view.js`, `src/model.js`, `src/visuals.js`: pure view/model/artwork helpers
 - `src/preferences.js`: presentation-only menu preference
+- `src/power.js`, `src/power-ui.js`: bounded optional commands, independent preferences and dialog presentation
+- `desktop/device-info.cjs`: five read-only runtime facts, no hardware detection or control
 - `src/preview.js`: explicit visual-preview-only sample adapter
 - `tests/`: regression tests; `tests/e2e/`: rendered browser interactions
+
+See [optional Power user behavior and validation gates](docs/POWER_USER.md).
 
 See [personal Home behavior and verification](docs/HOME.md) for collection, session and keyboard details.
 

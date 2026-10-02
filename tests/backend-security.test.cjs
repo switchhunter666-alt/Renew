@@ -20,7 +20,7 @@ async function mainHarness() {
   Object.assign(app, {
     setName: name => { app.name = name; }, setAppUserModelId: id => { app.modelId = id; },
     requestSingleInstanceLock: () => true, whenReady: () => Promise.resolve(),
-    getPath: () => '/application-data/renew', quit: () => { calls.push('quit'); },
+    getVersion: () => '0.1.0', getPath: () => '/application-data/renew', quit: () => { calls.push('quit'); },
   });
   class FakeService {
     constructor(options) { this.options = options; this.active = false; FakeService.instance = this; }
@@ -75,7 +75,7 @@ async function mainHarness() {
     },
   };
   vm.runInNewContext(fs.readFileSync(path.join(desktopDirectory, 'main.cjs'), 'utf8'), {
-    require: name => name === 'electron' ? electron : name === './services.cjs' ? { LauncherService: FakeService } : require(name),
+    require: name => name === 'electron' ? electron : name === './services.cjs' ? { LauncherService: FakeService } : name === './device-info.cjs' ? require('../desktop/device-info.cjs') : require(name),
     __dirname: desktopDirectory,
   }, { filename: 'main.cjs' });
   await settle();
@@ -98,7 +98,7 @@ test('preload exposes only the narrow allowlist and removes privileged event obj
   assert.equal(exposed.name, 'renewAPI');
   const api = exposed.api;
   assert.equal(Object.isFrozen(api), true);
-  assert.deepEqual(Object.keys(api).sort(), ['chooseEmulator', 'getState', 'importGames', 'launchGame',
+  assert.deepEqual(Object.keys(api).sort(), ['chooseEmulator', 'getState', 'getDeviceInfo', 'importGames', 'launchGame',
     'onSession', 'removeGame', 'updateGame', 'updateSettings', 'windowControl'].sort());
   await api.launchGame('game-1');
   assert.deepEqual(calls, [['renew:launch-game', 'game-1']]);
@@ -214,4 +214,18 @@ test('a late unsaved-write failure in strict flush also prevents native window c
   assert.equal(h.window.destroyed, false);
   const errorDialog = h.calls.find(call => Array.isArray(call) && call[0] === 'message' && call[1].type === 'error');
   assert.match(errorDialog[1].message, /not been saved/);
+});
+
+test('device information endpoint is read-only, argument-free and trusted-main-frame only', async () => {
+  const h = await mainHarness(); const get = h.handlers.get('renew:get-device-info');
+  assert.equal(typeof get, 'function');
+  const before = [...h.calls];
+  const info = await get(h.event(), {path: '/private', command: 'ignored'});
+  assert.equal(info.version, 1); assert.equal(info.renewVersion.value, '0.1.0');
+  assert.deepEqual(Object.keys(info), ['version', 'runtimePlatform', 'runtimeArchitecture', 'reportedSystemVersion', 'renewVersion', 'electronVersion']);
+  assert.deepEqual(h.calls, before, 'No native picker, window action or service mutation.');
+  await assert.rejects(get({sender: {}, senderFrame: h.window.webContents.mainFrame}), /did not come/);
+  await assert.rejects(get({sender: h.window.webContents, senderFrame: {url: h.window.webContents.mainFrame.url}}), /did not come/);
+  h.window.webContents.mainFrame.url = 'https://untrusted.example/';
+  await assert.rejects(get(h.event()), /did not come/);
 });

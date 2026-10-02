@@ -435,7 +435,8 @@ test('control audit: every interactive element in each generated app/dialog stat
     '#search', '#sort', '[data-focus="layout-grid"]', '[data-focus="layout-list"]',
     '[data-focus="filter-all"]', '[data-focus="filter-GBA"]', '[data-focus="filter-GBC"]', '[data-focus="filter-GB"]',
     '.game-art-button', '.card-title', '.card-menu', '[data-focus="empty-import"]', '.empty-collection [data-action="import"]',
-    '[data-action="reset-filters"]', '#settings-tab-emulator', '#settings-tab-launch',
+    '[data-action="reset-filters"]', '#settings-tab-emulator', '#settings-tab-launch', '#settings-tab-power',
+    '#power-enabled', '#power-palette', '#read-device', '#reset-power',
     '#choose-emulator', '#fullscreen', '#returnToLauncher', '[aria-label="Close settings"]', '#dialog .dialog-actions [data-close]',
     '#game-title', '#save-title', '#detail-favorite', '#remove-game', '[aria-label="Close game details"]',
     '#confirm-remove', '[aria-label="Cancel removal"]', '[aria-label="Close message"]', '#clear-preview'
@@ -561,11 +562,11 @@ test('filtered selection: changing selection cannot bypass a running or pending 
 });
 
 // Category navigation groups existing preferences without adding configuration.
-test('console settings: category rail exposes only emulator and launch panels without mutations', async () => {
+test('console settings: category rail exposes emulator, launch and optional power panels without mutations', async () => {
   const context = await setup();
   click('[data-focus="settings"]');
   assert.equal(node('#dialog').className, 'console-settings');
-  assert.deepEqual([...document.querySelectorAll('[role="tab"]')].map(tab => tab.dataset.settingsTab), ['emulator', 'launch']);
+  assert.deepEqual([...document.querySelectorAll('[role="tab"]')].map(tab => tab.dataset.settingsTab), ['emulator', 'launch', 'power']);
   assert.equal(node('#settings-panel-emulator').hidden, false);
   assert.equal(node('#settings-panel-launch').hidden, true);
   click('#settings-tab-launch');
@@ -589,14 +590,16 @@ test('console settings: category keyboard navigation moves focus and keeps panel
   assert.equal(document.activeElement.id, 'settings-tab-launch');
   assert.equal(node('#settings-panel-launch').hidden, false);
   tabKey('ArrowDown');
+  assert.equal(document.activeElement.id, 'settings-tab-power');
+  tabKey('ArrowDown');
   assert.equal(document.activeElement.id, 'settings-tab-emulator');
   tabKey('End');
-  assert.equal(document.activeElement.id, 'settings-tab-launch');
+  assert.equal(document.activeElement.id, 'settings-tab-power');
   tabKey('Home');
   assert.equal(document.activeElement.id, 'settings-tab-emulator');
   tabKey('ArrowUp');
-  assert.equal(document.activeElement.id, 'settings-tab-launch');
-  assert.equal(node('#settings-tab-launch').getAttribute('aria-selected'), 'true');
+  assert.equal(document.activeElement.id, 'settings-tab-power');
+  assert.equal(node('#settings-tab-power').getAttribute('aria-selected'), 'true');
   cancelDialog();
   assert.equal(node('#dialog').open, false);
 });

@@ -4,6 +4,7 @@ const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { LauncherService } = require('./services.cjs');
+const { collectDeviceInfo } = require('./device-info.cjs');
 
 app.setName('Renew');
 app.setAppUserModelId('app.renew.launcher');
@@ -38,6 +39,7 @@ async function withDialog(action) {
 }
 function registerIPC() {
   handle('renew:get-state', () => service.getState());
+  handle('renew:get-device-info', () => collectDeviceInfo({app}));
   handle('renew:choose-emulator', () => withDialog(async () => {
     const result = await dialog.showOpenDialog(currentWindow(), {
       title: 'Choose your mGBA executable', buttonLabel: 'Use mGBA',

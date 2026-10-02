@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const {createHash} = require('node:crypto');
 const { _electron: electron } = require('playwright');
 const { expect } = require('@playwright/test');
 
@@ -46,7 +47,41 @@ test('Windows Electron boots its real preload, persists settings and displays na
   await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized())).toBe(true);
   // Restore this test-owned window to continue; this is not a taskbar interaction claim.
   await application.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.restore(); win.show(); win.focus(); });
+  // This is the actual isolated preload -> sender-checked main-process endpoint.
+  // No injected device response or simulated hardware qualifies this assertion.
+  const expectedRuntime = await application.evaluate(({app}) => ({
+    runtimePlatform: process.platform, runtimeArchitecture: process.arch,
+    renewVersion: app.getVersion(), electronVersion: process.versions.electron,
+  }));
+  expectedRuntime.reportedSystemVersion = os.release();
+  const deviceInfo = await page.evaluate(() => window.renewAPI.getDeviceInfo());
+  assert.deepEqual(Object.keys(deviceInfo).sort(), ['version', ...Object.keys(expectedRuntime)].sort());
+  assert.equal(deviceInfo.version, 1);
+  for (const [key, value] of Object.entries(expectedRuntime)) {
+    assert.equal(deviceInfo[key].status, 'reported', `${key} came from the running app`);
+    assert.equal(deviceInfo[key].value, value, `${key} matches the running main process`);
+  }
+  assert.equal(deviceInfo.runtimePlatform.source, 'process.platform');
+  assert.equal(deviceInfo.runtimeArchitecture.source, 'process.arch');
+  assert.equal(deviceInfo.reportedSystemVersion.source, 'os.release()');
+  assert.equal(deviceInfo.renewVersion.source, 'app.getVersion()');
+  assert.equal(deviceInfo.electronVersion.source, 'process.versions.electron');
+  const sources = ['src/app.js', 'src/power.js', 'src/power-ui.js', 'src/view.js', 'src/styles.css', 'desktop/device-info.cjs', 'desktop/main.cjs', 'desktop/preload.cjs', 'tests/native/desktop-smoke.test.cjs'];
+  const sourceSHA256 = Object.fromEntries(await Promise.all(sources.map(async file => [file, createHash('sha256').update(await fs.readFile(file)).digest('hex')])));
+  await fs.writeFile(path.join(artifactDirectory, 'renew-device-info.json'), JSON.stringify({kind:'real-windows-electron-ipc', deviceInfo, sourceSHA256}, null, 2));
+  await expect(page.getByRole('button', {name:'Open command palette',exact:true})).toHaveCount(0);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', {name:'Power user',exact:true}).click();
+  await page.getByRole('switch', {name:'Power user tools',exact:true}).check();
+  await page.getByRole('switch', {name:'Command palette',exact:true}).check();
+  await page.getByRole('button', {name:'Read device information'}).click();
+  await expect(page.locator('#device-info')).toContainText(expectedRuntime.electronVersion);
+  await expect(page.locator('#device-info')).toContainText('Not identified');
+  await expect(page.locator('#device-info')).toContainText('Wine');
+  await expect(page.locator('#device-info')).not.toContainText('visual preview');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('#device-info').scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(artifactDirectory,'renew-windows-device-info.png'), fullPage:false});
   await page.getByRole('tab', { name: 'Launch', exact: true }).click();
   await page.getByRole('switch', { name: 'Start games fullscreen' }).uncheck();
   await expect(page.getByRole('switch', { name: 'Start games fullscreen' })).toBeEnabled();
@@ -64,6 +99,12 @@ test('Windows Electron boots its real preload, persists settings and displays na
     favorite: false, playSeconds: 0, lastPlayed: null, addedAt: new Date().toISOString(), art: 'aurora' }];
   await fs.writeFile(stateFile, JSON.stringify(saved));
   page = await launch();
+  await expect(page.getByRole('button', {name:'Open command palette',exact:true})).toBeVisible();
+  await page.getByRole('button', {name:'Open command palette',exact:true}).click();
+  await page.getByRole('searchbox', {name:'Find a command or game',exact:true}).fill('Pick an unplayed');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('.game-art-button')).toBeFocused();
   await expect(page.locator('.game-card')).toHaveCount(1);
   await page.getByRole('button', { name: 'Details for Launch-check fixture', exact: true }).click();
   await page.getByRole('textbox', { name: 'Display name' }).fill('Renamed launch-check fixture');

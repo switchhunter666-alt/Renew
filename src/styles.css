@@ -247,7 +247,7 @@ dialog h2 { font-size: 30px; font-weight: 450; line-height: 1.2; letter-spacing:
 [data-operation-error] { margin-top: 18px; margin-bottom: 0; }
 .fatal { grid-column: 1/-1; max-width: 700px; padding: 60px; }
 
-/* Console-like settings: only the existing emulator and launch preferences. */
+/* Console-like settings with emulator, launch and optional Power user tools. */
 dialog.console-settings { width: min(1040px,calc(100vw - 64px)); padding: 32px; background: linear-gradient(135deg,#101f30,#081321); }
 .settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 0 5px 27px; }
 .settings-header h2 { font-size: 38px; margin: 9px 0 7px; font-weight: 400; }
@@ -402,3 +402,28 @@ dialog.console-settings { width: min(1040px,calc(100vw - 64px)); padding: 32px; 
   .settings-footer>.button { min-width: 90px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Optional Power user tools; fixed high-contrast surfaces across scene palettes. */
+.power-palette-button kbd { font-size: 9px; color: #c5d6e8; background: #102238; border-color: #526b85; }
+.device-section { margin-top: 27px; padding-top: 22px; border-top: 1px solid #30465e; }
+.device-section h3 { margin: 0 0 8px; font-size: 21px; font-weight: 450; }
+#device-info { margin-top: 17px; }
+.device-facts { margin: 0; }
+.device-facts>div { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 13px 0; border-bottom: 1px solid #30465e; }
+.device-facts dt { font-size: 12px; color: #c7d9ec; }
+.device-facts dd { margin: 0; font-size: 13px; color: #eef5ff; overflow-wrap: anywhere; }
+.device-facts small { display: block; margin-top: 5px; font-size: 10px; color: #b0c3d8; line-height: 1.5; }
+.power-reset { border-top: 1px solid #30465e; margin-top: 25px; padding-top: 20px; }
+dialog.command-palette { width: min(670px,calc(100vw - 40px)); background: #0b1827; }
+.command-palette .dialog-top { margin-bottom: 12px; }
+.command-palette h2 { margin-bottom: 0; }
+.palette-results { list-style: none; padding: 0; margin: 18px 0 0; max-height: 46vh; overflow-y: auto; }
+.palette-results li+li { margin-top: 6px; }
+.palette-command { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; min-height: 59px; padding: 12px 15px; border: 1px solid #405a74; border-radius: 6px; text-align: left; background: #12273d; color: #eef5ff; font-size: 14px; overflow-wrap: anywhere; }
+.palette-command small { display: block; margin-top: 5px; font-size: 11px; color: #b7cde2; }
+.palette-command:hover:not(:disabled), .palette-command:focus-visible { background: #234360; border-color: #a5d0f7; }
+.palette-command:disabled { opacity: 1; color: #bacbdb; background: #101d2b; border-color: #30465e; cursor: not-allowed; }
+.palette-command:disabled small { color: #a8bbce; }
+.palette-empty { color: #b0c3d8; padding: 22px 0; }
+@media (max-width: 1100px) { .power-palette-button kbd { display: none; } }
+@media (max-width: 600px) { .settings-nav { flex-wrap: wrap; } .settings-nav>button { flex-basis: 28%; } .device-facts>div { grid-template-columns: 1fr; gap: 8px; } }

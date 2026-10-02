@@ -4,6 +4,8 @@ import {renderShell} from './view.js';
 import {icon, artwork, paletteForGame} from './visuals.js';
 import {visibleGames} from './navigation.js';
 import {readSidebarPreference, writeSidebarPreference} from './preferences.js';
+import {readPowerPreferences, paletteEnabled, paletteCommands, unplayedCandidates, canLaunchGame} from './power.js';
+import {powerSettingsMarkup, bindPowerSettings, bindCommandPalette} from './power-ui.js';
 const previewRequested = ['http:', 'https:'].includes(window.location.protocol) && new URLSearchParams(window.location.search).get('preview') === '1';
 const api = window.renewAPI || (previewRequested ? createPreviewAPI() : null);
 const isPreview = Boolean(api?.preview);
@@ -12,7 +14,8 @@ const dialog = document.querySelector('#dialog');
 const toast = document.querySelector('#toast');
 let state, selectedId, busy = false, toastTimer;
 let interactionGeneration = 0;
-let dialogGeneration = 0, dialogReturnFocus = null, dialogGameId = null;
+let dialogGeneration = 0, dialogReturnFocus = null, dialogGameId = null, syncExtraDialog = null;
+let powerPreferences = readPowerPreferences(window);
 const ui = { view: 'home', system: 'all', query: '', sort: 'recent', layout: 'grid', sidebarCollapsed: readSidebarPreference(window) };
 function notify(message) {
   toast.textContent = message; toast.hidden = false;
@@ -23,6 +26,7 @@ function applyState(next) {
   state = next;
   if (!state.games.some(game => game.id === selectedId)) selectedId = undefined;
   render();
+  syncDialogState();
 }
 function render() {
   const games = visibleGames(state, ui);
@@ -36,7 +40,7 @@ function render() {
   app.classList.toggle('menu-collapsed', ui.sidebarCollapsed);
   app.dataset.palette = paletteForGame(games.find(game => game.id === selectedId));
   app.dataset.currentView = ui.view;
-  app.innerHTML = renderShell({state, ui, selectedId, busy, isPreview});
+  app.innerHTML = renderShell({state, ui, selectedId, busy, isPreview, power: powerPreferences});
   for (const row of app.querySelectorAll('[data-shelf]')) row.scrollLeft = rowScroll.get(row.dataset.shelf) || 0;
   if (focus && !dialog.open) {
     const exact = app.querySelector(`[data-focus="${CSS.escape(focus)}"]`);
@@ -49,6 +53,7 @@ function render() {
 }
 function syncDialogState() {
   if (!dialog.open) return;
+  if (dialog.classList.contains('command-palette')) { syncExtraDialog?.(); return; }
   dialog.querySelectorAll('input, select, button:not([data-close])').forEach(control => { control.disabled = busy; });
   if (busy) dialog.setAttribute('aria-busy', 'true'); else dialog.removeAttribute('aria-busy');
   if (!busy) {
@@ -68,6 +73,7 @@ function syncDialogState() {
     const emulator = dialog.querySelector('.emulator-path span');
     if (emulator) emulator.textContent = state.settings.emulatorPath || 'No emulator selected';
   }
+  syncExtraDialog?.();
 }
 async function run(operation, success, originGeneration = null) {
   if (busy) return;
@@ -106,7 +112,8 @@ async function run(operation, success, originGeneration = null) {
 function closeDialog() {
   dialogGeneration++;
   dialog.close();
-  const returnTarget = (dialogReturnFocus && app.querySelector(`[data-focus="${CSS.escape(dialogReturnFocus)}"]`)) || app.querySelector('[data-focus="import"]');
+  syncExtraDialog = null;
+  const returnTarget = (dialogReturnFocus && app.querySelector(`[data-focus="${CSS.escape(dialogReturnFocus)}"]:not(:disabled)`)) || app.querySelector('[data-focus="import"]:not(:disabled)') || app.querySelector('#collection-title');
   returnTarget?.focus({ preventScroll: true });
 }
 function showDialog(content, kind = '') {
@@ -115,7 +122,9 @@ function showDialog(content, kind = '') {
   if (dialog.open) dialog.close();
   dialog.removeAttribute('aria-busy');
   dialogGameId = null;
+  syncExtraDialog = null;
   dialog.className = kind;
+  dialog.onkeydown = null;
   dialog.innerHTML = content;
   dialog.showModal();
   dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', closeDialog));
@@ -130,11 +139,12 @@ function syncSettingsOrientation() {
   if (tabs) tabs.setAttribute('aria-orientation', window.innerWidth <= 600 ? 'horizontal' : 'vertical');
 }
 window.addEventListener('resize', syncSettingsOrientation);
-function showSettings(category = 'emulator') {
+function showSettings(category = 'emulator', readDevice = false) {
   const generation = showDialog(`<header class="settings-header"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h2 id="dialog-title">Settings</h2><p>A little setup. Then play.</p></div><button class="icon-button" data-close aria-label="Close settings">${icon('close')}</button></header>
     <div class="settings-layout"><div class="settings-nav" role="tablist" aria-label="Settings categories" aria-orientation="vertical">
       <button id="settings-tab-emulator" role="tab" data-settings-tab="emulator" aria-controls="settings-panel-emulator" aria-selected="true">${icon('game')}<span>Emulator</span>${icon('chevron')}</button>
       <button id="settings-tab-launch" role="tab" data-settings-tab="launch" aria-controls="settings-panel-launch" aria-selected="false" tabindex="-1">${icon('play')}<span>Launch</span>${icon('chevron')}</button>
+      <button id="settings-tab-power" role="tab" data-settings-tab="power" aria-controls="settings-panel-power" aria-selected="false" tabindex="-1">${icon('settings')}<span>Power user</span>${icon('chevron')}</button>
       <div class="settings-local">${icon('folder')}<span>Stored on this computer<small>Your games stay where they are.</small></span></div>
     </div><div class="settings-content">
       <section id="settings-panel-emulator" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-emulator"><div class="settings-section-title"><div><h3>Your emulator</h3><p>Connect your existing mGBA installation.</p></div><span class="tag">mGBA</span></div>
@@ -146,10 +156,13 @@ function showSettings(category = 'emulator') {
         <label class="setting-row"><span><strong>Come back to Renew</strong><small id="return-description">Restore the launcher when mGBA exits</small></span><input type="checkbox" id="returnToLauncher" role="switch" aria-label="Come back to Renew" aria-describedby="return-description" ${state.settings.returnToLauncher ? 'checked' : ''}></label>
         <p class="field-hint">Close your game using mGBA’s own controls. Renew stays ready for your next session.</p>
       </section>
+      ${powerSettingsMarkup(powerPreferences)}
     </div></div>
-    ${isPreview ? '<div class="settings-preview"><p>Preview settings last for this tab only. Native launch and Windows focus behavior are not measured here.</p><button class="text-button" id="clear-preview">Explore the empty-library state</button></div>' : ''}
+    ${isPreview ? '<div class="settings-preview"><p>Emulator and launch preview settings last for this tab only. Power user preferences are saved in this browser profile. Native launch, device facts and Windows focus behavior are not measured here.</p><button class="text-button" id="clear-preview">Explore the empty-library state</button></div>' : ''}
     <footer class="dialog-actions settings-footer"><span>${isPreview ? 'Preview changes apply automatically' : 'Settings save automatically'}</span><button class="button primary" data-close>Done</button></footer>`, 'console-settings');
+  let powerControls;
   const selectCategory = (next, focus = false) => {
+    if (category === 'power' && next !== 'power') powerControls?.clear();
     category = next;
     for (const tab of dialog.querySelectorAll('[data-settings-tab]')) {
       const selected = tab.dataset.settingsTab === category;
@@ -158,6 +171,7 @@ function showSettings(category = 'emulator') {
       dialog.querySelector(`#${tab.getAttribute('aria-controls')}`).hidden = !selected;
       if (selected && focus) tab.focus();
     }
+    syncDialogState();
   };
   selectCategory(category);
   syncSettingsOrientation();
@@ -167,9 +181,16 @@ function showSettings(category = 'emulator') {
       const arrows = window.innerWidth <= 600 ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
       if (![...arrows, 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      selectCategory(event.key === 'Home' ? 'emulator' : event.key === 'End' ? 'launch' : category === 'emulator' ? 'launch' : 'emulator', true);
+      const tabs = [...dialog.querySelectorAll('[data-settings-tab]:not(:disabled)')];
+      const index = tabs.indexOf(tab);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === arrows[1] ? 1 : -1) + tabs.length) % tabs.length;
+      if (tabs[next]) selectCategory(tabs[next].dataset.settingsTab, true);
     });
   }
+  powerControls = bindPowerSettings({dialog, host: window, getDeviceInfo: typeof api.getDeviceInfo === 'function' ? () => api.getDeviceInfo() : null, isPreview, getPreferences: () => powerPreferences, setPreferences: value => { powerPreferences = value; }, isBusy: () => busy, getCategory: () => category, isCurrent: () => generation === dialogGeneration && dialog.open, changed: () => {syncDialogState(); render();}, notify, announce});
+  syncExtraDialog = powerControls.sync;
+  syncDialogState();
+  if (readDevice) void powerControls.read();
   dialog.querySelector('#choose-emulator').addEventListener('click', async () => { const ok = await run(() => api.chooseEmulator(), null, generation); if (ok && generation === dialogGeneration && dialog.open) { showSettings(category); dialog.querySelector('#choose-emulator')?.focus(); } });
   for (const setting of ['fullscreen','returnToLauncher']) dialog.querySelector(`#${setting}`).addEventListener('change', async event => { const value = event.target.checked; const ok = await run(() => api.updateSettings({ [setting]: value }), null, generation); if (ok) announce('Setting saved'); });
   dialog.querySelector('#clear-preview')?.addEventListener('click', async () => { applyState(await api.clearPreview()); if (generation === dialogGeneration) closeDialog(); });
@@ -184,6 +205,44 @@ function showDetails(id, draft = null) {
   dialog.querySelector('#detail-favorite').addEventListener('click', async () => { const draft = { title: dialog.querySelector('#game-title').value }; const ok = await run(() => api.updateGame(id,{favorite:!state.games.find(entry => entry.id === id).favorite}), null, generation); if (ok && generation === dialogGeneration && dialog.open) { showDetails(id, draft); dialog.querySelector('#detail-favorite')?.focus(); } });
   dialog.querySelector('#remove-game').addEventListener('click', () => { const confirmationGeneration = showDialog(`<div class="dialog-top"><span class="dialog-icon">${icon('folder')}</span><button class="icon-button" data-close aria-label="Cancel removal">${icon('close')}</button></div><h2 id="dialog-title">Remove ${esc(game.title)}?</h2><p class="dialog-description">This removes its library entry and play history. Your original game file will not be deleted.</p><div class="dialog-actions"><button class="button subtle" data-close>Keep game</button><button class="button danger-button" id="confirm-remove">Remove from library</button></div>`); dialog.querySelector('#confirm-remove').addEventListener('click', async () => { const ok = await run(() => api.removeGame(id),'Removed from library. Your file is safe.', confirmationGeneration); if (ok && confirmationGeneration === dialogGeneration && dialog.open) closeDialog(); }); });
 }
+
+async function launchGame(id) {
+  if (!canLaunchGame(state, id, busy)) return;
+  await run(() => api.launchGame(id));
+}
+function showPalette() {
+  if (!paletteEnabled(powerPreferences) || dialog.open || !state) return;
+  const palette = bindCommandPalette({dialog, showDialog, closeDialog, getCommands: query => paletteCommands(state, busy, query), activate: id => activate(id)});
+  syncExtraDialog = palette.refresh;
+  function activate(id) {
+    // Resolve against current state, including removal, pending operations and any session.
+    if (!paletteEnabled(powerPreferences)) return;
+    const command = paletteCommands(state, busy, palette.query()).find(entry => entry.id === id);
+    if (!command || command.disabled) { palette.refresh(); return; }
+    interactionGeneration++;
+    if (command.gameId) {
+      if (!canLaunchGame(state, command.gameId, busy)) return;
+      closeDialog();
+      ui.view = 'library'; ui.system = 'all'; ui.query = ''; selectedId = command.gameId; render();
+      app.querySelector('[data-focus="hero-play"]')?.focus();
+      void launchGame(command.gameId); return;
+    }
+    if (id === 'settings' || id === 'device') { showSettings(id === 'device' ? 'power' : 'emulator', id === 'device'); return; }
+    closeDialog();
+    if (['home', 'library', 'favorites'].includes(id)) { ui.view = id; ui.system = 'all'; ui.query = ''; render(); app.querySelector('#collection-title')?.focus(); }
+    if (id === 'import') void run(() => api.importGames());
+    if (id === 'pick-unplayed') {
+      const candidates = unplayedCandidates(state);
+      const game = candidates[Math.floor(Math.random() * candidates.length)];
+      if (!game) return;
+      // Open the complete collection: a choice beyond Home's six cards stays visible.
+      ui.view = 'library'; ui.system = 'all'; ui.query = ''; ui.sort = 'title'; selectedId = game.id; render();
+      app.querySelector(`[data-action="select"][data-id="${CSS.escape(game.id)}"]`)?.focus();
+      announce(`${game.title} selected. Nothing launched.`);
+    }
+  }
+}
+
 function bind() {
   app.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', async () => {
     const { action, id } = button.dataset;
@@ -195,9 +254,10 @@ function bind() {
     if (action === 'select') { selectedId = id; render(); announce(`${state.games.find(game => game.id === id)?.title} selected`); }
     if (action === 'layout') { ui.layout = button.dataset.layout; render(); }
     if (action === 'favorite') await run(() => api.updateGame(id, { favorite: !state.games.find(game => game.id === id).favorite }));
-    if (action === 'play' && !state.session) await run(() => api.launchGame(id));
+    if (action === 'play') await launchGame(id);
     if (action === 'import') await run(() => api.importGames());
     if (action === 'settings') showSettings();
+    if (action === 'palette') showPalette();
     if (action === 'details') showDetails(id);
     if (action === 'window') api.windowControl(button.dataset.command);
     if (action === 'reset-filters') { ui.query = ''; ui.system = 'all'; render(); }
@@ -216,10 +276,12 @@ function bind() {
 dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeDialog(); } });
 dialog.addEventListener('cancel', event => { event.preventDefault(); closeDialog(); });
 document.addEventListener('keydown', event => {
-  const editing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+  if (event.defaultPrevented || event.isComposing || event.repeat) return;
+  const editing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
+  if (event.key.toLowerCase() === 'k' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !editing && !dialog.open && paletteEnabled(powerPreferences) && state) { event.preventDefault(); showPalette(); return; }
   if (event.key === '/' && !editing && !dialog.open) { event.preventDefault(); document.querySelector('#search')?.focus(); }
   if (event.key === 'Escape' && !dialog.open && ui.query) { ui.query = ''; render(); }
-  if (event.key === 'Enter' && !editing && !dialog.open && document.activeElement === document.body && selectedId && !state.session && !busy) { event.preventDefault(); run(() => api.launchGame(selectedId)); }
+  if (event.key === 'Enter' && !editing && !dialog.open && document.activeElement === document.body && selectedId && !state.session && !busy) { event.preventDefault(); void launchGame(selectedId); }
 });
 api?.onSession(next => { applyState(next); if (next.error) showError(next.error); });
 try {

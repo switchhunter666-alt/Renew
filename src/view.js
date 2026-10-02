@@ -2,8 +2,9 @@ import {escapeHTML as esc, formatRecordedTime, platformName} from './model.js';
 import {icon, artwork} from './visuals.js';
 import {selectHomeCollections} from './home.js';
 import {visibleGames, sessionGame, viewTitle} from './navigation.js';
+import {paletteEnabled} from './power.js';
 
-export function renderShell({state, ui, selectedId, busy, isPreview}) {
+export function renderShell({state, ui, selectedId, busy, isPreview, power = {}}) {
   const games = visibleGames(state, ui);
   const selected = games.find(game => game.id === selectedId) || games[0];
   const counts = system => state.games.filter(game => !system || game.system === system).length;
@@ -25,7 +26,7 @@ export function renderShell({state, ui, selectedId, busy, isPreview}) {
   <div class="workspace">
     <div class="scene" aria-hidden="true"><img src="${selected ? artwork(selected) : './art/orchard-v1.png'}" alt=""><div class="scene-shade"></div></div>
     <header class="topbar"><div class="breadcrumb"><span class="topbar-brand">RENEW</span><span class="breadcrumb-divider"></span><h1>${viewTitle(ui.view)}</h1></div>
-      <div class="topbar-right"><button class="topbar-settings" data-action="settings" data-focus="quick-settings" aria-label="Open launcher settings">${icon('settings')}<span>Settings</span></button>${isPreview ? '<span class="preview-pill">INTERACTIVE PREVIEW</span>' : '<span class="desktop-pill">WINDOWS · mGBA</span>'}${!isPreview ? `<div class="window-controls"><button data-action="window" data-command="minimize" aria-label="Minimize">${icon('minimize')}</button><button data-action="window" data-command="maximize" aria-label="Maximize or restore">${icon('maximize')}</button><button data-action="window" data-command="close" aria-label="Close Renew">${icon('close')}</button></div>` : ''}</div>
+      <div class="topbar-right">${paletteEnabled(power) ? `<button class="topbar-settings power-palette-button" data-action="palette" data-focus="palette" aria-label="Open command palette" title="Commands · Ctrl+K">${icon('search')}<span>Commands</span><kbd>Ctrl K</kbd></button>` : ''}<button class="topbar-settings" data-action="settings" data-focus="quick-settings" aria-label="Open launcher settings">${icon('settings')}<span>Settings</span></button>${isPreview ? '<span class="preview-pill">INTERACTIVE PREVIEW</span>' : '<span class="desktop-pill">WINDOWS · mGBA</span>'}${!isPreview ? `<div class="window-controls"><button data-action="window" data-command="minimize" aria-label="Minimize">${icon('minimize')}</button><button data-action="window" data-command="maximize" aria-label="Maximize or restore">${icon('maximize')}</button><button data-action="window" data-command="close" aria-label="Close Renew">${icon('close')}</button></div>` : ''}</div>
     </header>
     <main id="main">
       ${state.warning ? `<div class="notice warning" role="alert">${icon('warning')}<span>${esc(state.warning)}</span></div>` : ''}

@@ -7,6 +7,7 @@ Renew has one desktop application, one supported emulator, and a narrow renderer
 | Module | Owns | Dependencies and contract |
 | --- | --- | --- |
 | `main.cjs` | Electron startup, the window, native pickers, sender-checked IPC, and the close confirmation | Calls `LauncherService`. A close waits for a strict checkpoint and flush; a save failure keeps the window open. It never terminates mGBA. |
+| `device-info.cjs` | Five bounded runtime facts only | Injected app/runtime/system sources; no subprocess, hardware detection, identity, environment, paths, network or mutable state. `main.cjs` exposes one sender-checked argument-free read. |
 | `preload.cjs` | The renderer capability boundary | Exposes the fixed `renewAPI` methods and sanitized session updates. No Node, filesystem, or general IPC API reaches the renderer. |
 | `services.cjs` | Application command ordering, library edits, public state, persistence-warning priority, and window callback policy | Injects filesystem, spawn, clock, ID factory, and UI callbacks into its collaborators. Commands are queued so edits and session results cannot overwrite each other. Existing public API and exported validation helpers are preserved. |
 | `library-store.cjs` | Saved schema, shared path/type rules, read protection, and atomic file replacement | `LibraryStore` accepts a state-file path, filesystem, platform, and temporary-ID factory. `load()` validates saved data; unreadable data blocks writes. `write({games, settings})` snapshots and serializes writes, enforces the 10 MiB UTF-8 limit before writing, and replaces through a synced temporary file. Runtime session/error state is not persisted. |
@@ -39,6 +40,8 @@ Mocked process tests do not establish compatibility with a particular installed 
 - `view.js`: pure HTML rendering from explicit state; no native calls or persistence
 - `visuals.js`: local artwork selection and SVG icons
 - `app.js`: event coordination, pending/disabled state, dialog lifetimes and focus restoration
+- `power.js`: fixed command descriptors, bounded search, launch eligibility, uncapped unplayed selection, strict versioned local preferences and escaped device-fact formatting
+- `power-ui.js`: Power user panel and palette markup/listeners; injected dialog lifecycle, current-state queries, a read-only device method and action callback. It cannot launch a game or write a library.
 - `preferences.js`: one presentation-only localStorage key for the collapsed menu; storage failure is safe and reported
 - `preview.js`: explicit HTTP preview adapter, sample data and in-memory behavior, with no native program execution
 
