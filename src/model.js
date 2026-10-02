@@ -7,6 +7,11 @@ export function formatTime(seconds) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min played`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m played`;
 }
+export function formatRecordedTime(game, session = null) {
+  if (Number.isFinite(game.playSeconds) && game.playSeconds > 0) return formatTime(game.playSeconds);
+  if (session?.gameId === game.id) return session.status === 'launching' ? 'Starting in mGBA' : 'Session in progress';
+  return game.lastPlayed ? 'No play time recorded in Renew' : 'No recorded play in Renew';
+}
 export function selectGames(games, { query = '', system = 'all', view = 'library', sort = 'recent' } = {}) {
   const normalized = query.trim().toLocaleLowerCase();
   return games.filter(game => (view !== 'favorites' || game.favorite) && (system === 'all' || game.system === system) && game.title.toLocaleLowerCase().includes(normalized)).sort((a, b) => {

@@ -24,6 +24,7 @@ async function setup(overrides={}) {
     launchGame:async id=>{state.session={gameId:id,status:'running'};return copy()},windowControl:()=>{},...overrides};
   window.renewAPI=api;
   await import(`../src/app.js?test=${++serial}`);
+  document.querySelector('[data-focus="nav-library"]').click();
   return {api,dialog,copy,emit:patch=>{Object.assign(state,patch);sessionHandler(copy())}};
 }
 afterEach(()=>{dom?.window.close();});

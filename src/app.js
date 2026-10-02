@@ -1,7 +1,8 @@
-import { escapeHTML as esc, formatTime, selectGames, platformName } from './model.js';
+import { escapeHTML as esc, formatRecordedTime, platformName } from './model.js';
 import { createPreviewAPI } from './preview.js';
 import {renderShell} from './view.js';
-import {icon, artwork} from './visuals.js';
+import {icon, artwork, paletteForGame} from './visuals.js';
+import {visibleGames} from './navigation.js';
 import {readSidebarPreference, writeSidebarPreference} from './preferences.js';
 const previewRequested = ['http:', 'https:'].includes(window.location.protocol) && new URLSearchParams(window.location.search).get('preview') === '1';
 const api = window.renewAPI || (previewRequested ? createPreviewAPI() : null);
@@ -10,8 +11,9 @@ const app = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
 const toast = document.querySelector('#toast');
 let state, selectedId, busy = false, toastTimer;
+let interactionGeneration = 0;
 let dialogGeneration = 0, dialogReturnFocus = null, dialogGameId = null;
-const ui = { view: 'library', system: 'all', query: '', sort: 'recent', layout: 'grid', sidebarCollapsed: readSidebarPreference(window) };
+const ui = { view: 'home', system: 'all', query: '', sort: 'recent', layout: 'grid', sidebarCollapsed: readSidebarPreference(window) };
 function notify(message) {
   toast.textContent = message; toast.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 5000);
@@ -19,20 +21,29 @@ function notify(message) {
 function announce(message) { document.querySelector('#announcer').textContent = message; }
 function applyState(next) {
   state = next;
-  if (!state.games.some(game => game.id === selectedId)) selectedId = state.games[0]?.id;
+  if (!state.games.some(game => game.id === selectedId)) selectedId = undefined;
   render();
 }
 function render() {
-  const visibleGames = selectGames(state.games, ui);
-  if (!visibleGames.some(game => game.id === selectedId)) selectedId = visibleGames[0]?.id;
-  const focus = document.activeElement?.dataset.focus;
-  const rowScroll = app.querySelector('.game-grid')?.scrollLeft || 0;
+  const games = visibleGames(state, ui);
+  if (!games.some(game => game.id === selectedId)) selectedId = games[0]?.id;
+  const active = document.activeElement;
+  const focus = app.contains(active) ? active?.dataset.focus : null;
+  const focusedGameId = active?.dataset.id;
+  const focusedAction = active?.dataset.action;
+  const rowScroll = new Map([...app.querySelectorAll('[data-shelf]')].map(row => [row.dataset.shelf, row.scrollLeft]));
   const selection = document.activeElement?.id === 'search' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   app.classList.toggle('menu-collapsed', ui.sidebarCollapsed);
+  app.dataset.palette = paletteForGame(games.find(game => game.id === selectedId));
+  app.dataset.currentView = ui.view;
   app.innerHTML = renderShell({state, ui, selectedId, busy, isPreview});
-  const nextRow = app.querySelector('.game-grid');
-  if (nextRow) nextRow.scrollLeft = rowScroll;
-  if (focus) app.querySelector(`[data-focus="${CSS.escape(focus)}"]`)?.focus({ preventScroll: true });
+  for (const row of app.querySelectorAll('[data-shelf]')) row.scrollLeft = rowScroll.get(row.dataset.shelf) || 0;
+  if (focus && !dialog.open) {
+    const exact = app.querySelector(`[data-focus="${CSS.escape(focus)}"]`);
+    const sameGame = focusedGameId && app.querySelector(`[data-id="${CSS.escape(focusedGameId)}"][data-action="${CSS.escape(focusedAction || '')}"]:not(:disabled)`);
+    const target = exact && !exact.disabled ? exact : sameGame || app.querySelector('#collection-title');
+    target?.focus({preventScroll: true});
+  }
   if (selection) { const input = document.querySelector('#search'); input.setSelectionRange?.(...selection); }
   bind();
 }
@@ -60,6 +71,8 @@ function syncDialogState() {
 }
 async function run(operation, success, originGeneration = null) {
   if (busy) return;
+  const operationFocus = app.contains(document.activeElement) ? document.activeElement?.dataset.focus : null;
+  const operationInteraction = interactionGeneration, operationGame = selectedId;
   busy = true;
   if (originGeneration === dialogGeneration) dialog.querySelector('[data-operation-error]')?.remove();
   syncDialogState();
@@ -71,7 +84,7 @@ async function run(operation, success, originGeneration = null) {
     if (success) notify(success);
     succeeded = true;
   } catch (error) {
-    if (originGeneration === null) showError(error);
+    if (originGeneration === null) { showError(error); if (operationFocus && operationInteraction === interactionGeneration && operationGame === selectedId) dialogReturnFocus = operationFocus; }
     else if (originGeneration === dialogGeneration && dialog.open) {
       const feedback = document.createElement('div');
       feedback.className = 'notice warning';
@@ -84,6 +97,9 @@ async function run(operation, success, originGeneration = null) {
     busy = false;
     syncDialogState();
     render();
+    if (operationFocus && operationInteraction === interactionGeneration && operationGame === selectedId && !dialog.open && (document.activeElement === document.body || document.activeElement?.dataset.focus === 'content-heading')) {
+      app.querySelector(`[data-focus="${CSS.escape(operationFocus)}"]:not(:disabled)`)?.focus({preventScroll: true});
+    }
   }
   return succeeded;
 }
@@ -160,7 +176,7 @@ function showSettings(category = 'emulator') {
 }
 function showDetails(id, draft = null) {
   const game = state.games.find(item => item.id === id); if (!game) return;
-  const generation = showDialog(`<div class="dialog-top"><span class="tag">${esc(platformName(game.system))}</span><button class="icon-button" data-close aria-label="Close game details">${icon('close')}</button></div><img class="detail-art" src="${artwork(game)}" alt=""><h2 id="dialog-title">${esc(game.title)}</h2><p class="dialog-description">${esc(formatTime(game.playSeconds))}${game.sample ? ' · Fictional preview title' : ''}</p><label class="field-label" for="game-title">Display name</label><input class="text-input" id="game-title" maxlength="160" value="${esc(draft?.title ?? game.title)}"><p class="field-hint">${game.sample ? 'Sample content, no ROM attached.' : `File: ${esc(game.path)}`}</p><div class="detail-actions"><button class="button subtle" id="save-title">Save name</button><button class="button subtle" id="detail-favorite">${icon('heart')} ${game.favorite ? 'Unfavorite' : 'Favorite'}</button></div><div class="remove-row"><span>Remove from library<br><small>Your original game file stays untouched</small></span><button class="text-button danger" id="remove-game">Remove</button></div>`);
+  const generation = showDialog(`<div class="dialog-top"><span class="tag">${esc(platformName(game.system))}</span><button class="icon-button" data-close aria-label="Close game details">${icon('close')}</button></div><img class="detail-art" src="${artwork(game)}" alt=""><h2 id="dialog-title">${esc(game.title)}</h2><p class="dialog-description">${esc(formatRecordedTime(game, state.session))}${game.sample ? ' · Fictional preview title' : ''}</p><label class="field-label" for="game-title">Display name</label><input class="text-input" id="game-title" maxlength="160" value="${esc(draft?.title ?? game.title)}"><p class="field-hint">${game.sample ? 'Sample content, no ROM attached.' : `File: ${esc(game.path)}`}</p><div class="detail-actions"><button class="button subtle" id="save-title">Save name</button><button class="button subtle" id="detail-favorite">${icon('heart')} ${game.favorite ? 'Unfavorite' : 'Favorite'}</button></div><div class="remove-row"><span>Remove from library<br><small>Your original game file stays untouched</small></span><button class="text-button danger" id="remove-game">Remove</button></div>`);
   dialogGameId = id;
   dialog.querySelector('#game-title').dataset.loadedTitle = game.title;
   dialog.querySelector('#save-title').addEventListener('click', async () => { const title = dialog.querySelector('#game-title').value.trim(); if (!title) { dialog.querySelector('#game-title').setCustomValidity('Enter a display name.'); dialog.querySelector('#game-title').reportValidity(); return; } const ok = await run(() => api.updateGame(id,{title}), 'Game name updated', generation); if (ok && generation === dialogGeneration && dialog.open) closeDialog(); });
@@ -171,22 +187,31 @@ function showDetails(id, draft = null) {
 function bind() {
   app.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', async () => {
     const { action, id } = button.dataset;
+    interactionGeneration++;
     if (action === 'toggle-menu') { ui.sidebarCollapsed = !ui.sidebarCollapsed; if (!writeSidebarPreference(window, ui.sidebarCollapsed)) notify('Menu changed for this session. This device could not save the preference.'); render(); }
     if (action === 'nav') { ui.view = button.dataset.view; ui.system = 'all'; ui.query = ''; render(); }
-    if (action === 'system') { ui.system = ui.system === button.dataset.system && ui.system !== 'all' ? 'all' : button.dataset.system; render(); announce(`${selectGames(state.games, ui).length} games shown`); }
+    if (action === 'collection') { ui.view = button.dataset.view; ui.sort = ui.view === 'recent' ? 'recent' : 'title'; render(); document.querySelector('#collection-title')?.scrollIntoView?.({block: 'start'}); }
+    if (action === 'system') { ui.system = ui.system === button.dataset.system && ui.system !== 'all' ? 'all' : button.dataset.system; render(); announce(`${visibleGames(state, ui).length} games shown`); }
     if (action === 'select') { selectedId = id; render(); announce(`${state.games.find(game => game.id === id)?.title} selected`); }
     if (action === 'layout') { ui.layout = button.dataset.layout; render(); }
     if (action === 'favorite') await run(() => api.updateGame(id, { favorite: !state.games.find(game => game.id === id).favorite }));
-    if (action === 'play') await run(() => api.launchGame(id));
+    if (action === 'play' && !state.session) await run(() => api.launchGame(id));
     if (action === 'import') await run(() => api.importGames());
     if (action === 'settings') showSettings();
     if (action === 'details') showDetails(id);
     if (action === 'window') api.windowControl(button.dataset.command);
     if (action === 'reset-filters') { ui.query = ''; ui.system = 'all'; render(); }
   }));
-  document.querySelector('#search').addEventListener('input', event => { ui.query = event.target.value; render(); });
-  document.querySelector('#sort').addEventListener('change', event => { ui.sort = event.target.value; render(); });
-  app.querySelector('.brand').addEventListener('click', event => { event.preventDefault(); ui.view = 'library'; ui.system = 'all'; ui.query = ''; render(); });
+  document.querySelector('#search').addEventListener('input', event => { interactionGeneration++; ui.query = event.target.value; if (ui.view === 'home') ui.view = 'library'; render(); });
+  document.querySelector('#sort')?.addEventListener('change', event => { interactionGeneration++; ui.sort = event.target.value; render(); });
+  app.querySelectorAll('.home-shelf').forEach(shelf => shelf.addEventListener('keydown', event => {
+    if (!event.target.matches('.game-art-button') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...shelf.querySelectorAll('.game-art-button')];
+    const index = buttons.indexOf(event.target);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+    event.preventDefault(); buttons[next].focus();
+  }));
+  app.querySelector('.brand').addEventListener('click', event => { event.preventDefault(); interactionGeneration++; ui.view = 'home'; ui.system = 'all'; ui.query = ''; render(); });
 }
 dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeDialog(); } });
 dialog.addEventListener('cancel', event => { event.preventDefault(); closeDialog(); });

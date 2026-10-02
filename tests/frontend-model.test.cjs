@@ -45,3 +45,13 @@ test('sidebar preference remembers both modes and fails safely when storage is u
   assert.equal(readSidebarPreference(denied),true);
   assert.equal(writeSidebarPreference(denied,false),false);
 });
+
+test('recorded-time labels distinguish no history, zero-duration history and an active session', async () => {
+  const {formatRecordedTime} = await model;
+  const game = {id: 'a', playSeconds: 0, lastPlayed: null};
+  assert.equal(formatRecordedTime(game), 'No recorded play in Renew');
+  assert.equal(formatRecordedTime({...game, lastPlayed: '2026-10-01T00:00:00Z'}), 'No play time recorded in Renew');
+  assert.equal(formatRecordedTime(game, {gameId: 'a', status: 'launching'}), 'Starting in mGBA');
+  assert.equal(formatRecordedTime(game, {gameId: 'a', status: 'running'}), 'Session in progress');
+  assert.equal(formatRecordedTime({...game, playSeconds: 65}), '1 min played');
+});

@@ -25,7 +25,13 @@ const paths = {
   keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M7 16h10"/>'
 };
 export function icon(name, cls = '') { return `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.game}</svg>`; }
+// A finite local palette follows the original scene assigned to each game.
+// It is a deterministic presentation fallback, not extracted game box art.
+const scenes = {aurora: 'orchard-v1', ember: 'ember-v1', ocean: 'ocean-v1', violet: 'violet-v1'};
+export function paletteForGame(game) {
+  if (!game) return 'neutral';
+  return Object.hasOwn(scenes, game.art) ? game.art : artForId(game.id);
+}
 export function artwork(game) {
-  const name = {aurora: 'orchard-v1', ember: 'ember-v1', ocean: 'ocean-v1', violet: 'violet-v1'}[game.art || artForId(game.id)] || 'citadel-v1';
-  return `./art/${name}.png`;
+  return `./art/${scenes[paletteForGame(game)] || 'orchard-v1'}.png`;
 }

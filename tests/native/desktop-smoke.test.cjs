@@ -25,6 +25,8 @@ test('Windows Electron boots its real preload, persists settings and displays na
   const launch = async () => {
     application = await electron.launch({ args: [bootstrap], cwd: process.cwd(), timeout: 30000 });
     const page = await application.firstWindow({ timeout: 30000 });
+    await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Library', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
     return page;
   };

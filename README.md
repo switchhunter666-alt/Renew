@@ -5,7 +5,9 @@
 ## First Light · v0.1.0
 
 - Manually add uncompressed `.gba`, `.gbc`, and `.gb` files you own
+- Start on Home with Recently played, Favorites and Unplayed in Renew shelves based on local recorded history
 - Search, filter by system, sort, choose row/list view, rename and favorite games
+- Let restrained accents follow the selected game's assigned original local artwork
 - Expand or collapse the navigation rail; Renew remembers this presentation choice
 - Use console-style Emulator and Launch settings with large rows and descriptions
 - Choose an existing mGBA `.exe`; launch with literal arguments and no shell
@@ -63,6 +65,8 @@ CI runs unit/DOM checks on Linux and Windows, renders the preview in Chromium, s
 - `src/preferences.js`: presentation-only menu preference
 - `src/preview.js`: explicit visual-preview-only sample adapter
 - `tests/`: regression tests; `tests/e2e/`: rendered browser interactions
+
+See [personal Home behavior and verification](docs/HOME.md) for collection, session and keyboard details.
 
 See [art-led UI integration verification](docs/UI_INTEGRATION.md) for the current local UI evidence and rendering limitations.
 

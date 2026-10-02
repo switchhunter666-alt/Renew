@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 test('rendered preview: search, selection, favorites, dialogs, settings and empty state', async ({page}, testInfo) => {
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   await expect(page.getByRole('heading',{name:'The Last Orchard',exact:true})).toBeVisible();
   await expect(page.locator('.game-card')).toHaveCount(6);
   await expect(page.locator('img').first()).toBeVisible();
@@ -35,6 +36,7 @@ test('rendered preview: search, selection, favorites, dialogs, settings and empt
 test('supported narrow window retains named navigation and no horizontal overflow',async({page},testInfo)=>{
   await page.setViewportSize({width:980,height:680});
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   for(const name of ['Library','Favorites','Settings','Game Boy Advance','Game Boy Color','Game Boy']) await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Details for The Last Orchard'}).click();
   await page.getByRole('textbox',{name:'Display name'}).fill('A'.repeat(160));
@@ -65,6 +67,7 @@ test('preview never silently replaces a missing desktop connection',async({page}
 
 test('art-led console menu collapses, keeps keyboard focus and remembers the choice',async({page},testInfo)=>{
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   const toggle=page.getByRole('button',{name:'Expand navigation menu',exact:true});
   await expect(toggle).toHaveAttribute('aria-expanded','false');
   await toggle.focus();await toggle.press('Enter');
@@ -80,6 +83,7 @@ test('art-led console menu collapses, keeps keyboard focus and remembers the cho
 
 test('browser add, details, favorites, sort, views, invalid title and removal controls',async({page})=>{
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   const chooserPromise=page.waitForEvent('filechooser');
   await page.getByRole('button',{name:'Add games from quick actions',exact:true}).click();
   const chooser=await chooserPromise;
@@ -115,6 +119,7 @@ test('browser add, details, favorites, sort, views, invalid title and removal co
 
 test('filtered selection and empty search keep artwork, hero and launch aligned', async ({page}, testInfo) => {
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   await page.getByRole('searchbox',{name:'Find a game'}).fill('moon');
   await expect(page.locator('#hero-title')).toHaveText('Moonlit Letters');
   await expect(page.getByRole('button',{name:'Select Moonlit Letters',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -131,6 +136,7 @@ test('filtered selection and empty search keep artwork, hero and launch aligned'
 
 test('console settings category rail, keyboard navigation and repeated dismissal', async ({page}, testInfo) => {
   await page.goto('/?preview=1');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   const settings = page.getByRole('button',{name:'Settings',exact:true});
   await settings.click();
   await expect(page.getByRole('tabpanel',{name:'Emulator',exact:true})).toBeVisible();

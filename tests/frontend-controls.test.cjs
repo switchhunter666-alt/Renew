@@ -47,6 +47,7 @@ async function setup(options = {}) {
   if (!options.realPreview) window.renewAPI = api;
   context.api = options.realPreview ? null : api;
   await import(`../src/app.js?controls=${++serial}`);
+  document.querySelector('[data-focus="nav-library"]').click();
   return context;
 }
 afterEach(() => { dom?.window.close(); });
@@ -91,9 +92,10 @@ test('control audit: Library, Favorites, and brand reset the intended navigation
   click('[data-view="favorites"]');
   input('#search', 'missing');
   click('.brand');
-  assert.equal(titles().length, 4);
-  assert.equal(node('[data-view="library"]').classList.contains('active'), true);
+  assert.equal(node('[data-view="home"]').classList.contains('active'), true);
   assert.equal(node('#search').value, '');
+  click('[data-focus="nav-library"]');
+  assert.equal(titles().length, 4);
 });
 for (const location of ['system', 'filter']) {
   for (const [system, expected] of [['GBA', ['Green World', 'Quiet Fields']], ['GBC', ['Amber Trail']], ['GB', ['Blue Moon']]]) {
@@ -425,7 +427,7 @@ for (const selector of ['[aria-label="Open launcher settings"]', '[aria-label="C
 
 test('control audit: every interactive element in each generated app/dialog state belongs to the audited inventory', async () => {
   const selectors = [
-    '[data-focus="menu-toggle"]', '.brand', '[data-view="library"]', '[data-view="favorites"]',
+    '[data-focus="menu-toggle"]', '.brand', '[data-view="home"]', '[data-view="library"]', '[data-view="favorites"]',
     '[data-focus="system-GBA"]', '[data-focus="system-GBC"]', '[data-focus="system-GB"]', '[data-focus="settings"]',
     '[data-command="minimize"]', '[data-command="maximize"]', '[data-command="close"]', '.add-button',
     '[aria-label="Add games from quick actions"]', '[aria-label="Open launcher settings"]', '[aria-label="Configure launch preferences"]',

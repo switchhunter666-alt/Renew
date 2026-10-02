@@ -26,6 +26,14 @@ a { color: inherit; text-decoration: none; }
 .icon { width: 21px; height: 21px; flex-shrink: 0; vertical-align: middle; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
+/* The selected game's assigned local scene supplies restrained accents. All
+   action fills retain white-text contrast; focus outlines stay unmistakable. */
+#app { --accent: #83bdff; --accent-ink: #a6d2ff; --action-bg: #145da1; --action-hover: #196bb4; --accent-wash: #174675; }
+#app[data-palette="aurora"] { --accent: #85cda5; --accent-ink: #a6dfbc; --action-bg: #256543; --action-hover: #2a704b; --accent-wash: #1b4734; }
+#app[data-palette="ember"] { --accent: #e3b487; --accent-ink: #edc69f; --action-bg: #8c4d26; --action-hover: #9b552b; --accent-wash: #513423; }
+#app[data-palette="ocean"] { --accent: #80cbd5; --accent-ink: #a0dbe2; --action-bg: #176778; --action-hover: #1a7285; --accent-wash: #1b414b; }
+#app[data-palette="violet"] { --accent: #bca5e2; --accent-ink: #d0bdef; --action-bg: #694990; --action-hover: #75519f; --accent-wash: #39304f; }
+
 /* Fixed navigation rail, spacious when expanded and always reachable. */
 #app { display: grid; grid-template-columns: var(--rail) minmax(0,1fr); min-height: 100vh; }
 #app.menu-collapsed { --rail: 76px; }
@@ -36,7 +44,8 @@ a { color: inherit; text-decoration: none; }
 .brand-word { font-size: 13px; font-weight: 600; letter-spacing: 4px; }
 .nav-item, .system-item { position: relative; width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; border: 1px solid transparent; border-radius: 5px; padding: 13px 10px; margin-bottom: 8px; min-height: 47px; background: transparent; color: var(--muted); font-size: 13px; }
 .nav-item:hover, .system-item:hover { background: #1a2c3f; color: #fff; }
-.nav-item.active { color: #edf5ff; background: #142c43; }
+.nav-item.active { color: #edf5ff; background: var(--accent-wash); }
+.nav-item.active .nav-count { color: #c4d6e7; }
 .nav-item.active::before { content: ''; position: absolute; left: -14px; top: 0; bottom: 0; width: 3px; background: var(--accent); }
 .nav-count, .system-count { margin-left: auto; color: #8ea9c4; font-size: 10px; }
 .sidebar-section { font-size: 9px; letter-spacing: 1.8px; color: #788ca3; margin: 25px 11px 12px; }
@@ -93,8 +102,8 @@ main { padding: 0 32px; min-width: 0; max-width: 2100px; margin: auto; }
 .hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; margin-top: 24px; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 39px; padding: 9px 16px; border: 1px solid transparent; border-radius: 5px; font-size: 12px; font-weight: 500; transition: background .16s,border-color .16s; }
 .button .icon { width: 17px; height: 17px; }
-.button.primary, .play-button { color: white; background: #0d80f7; border-color: #2f9cff; box-shadow: 0 4px 20px #0074e52b; }
-.button.primary:hover, .play-button:hover { background: #2696ff; }
+.button.primary, .play-button { color: white; background: var(--action-bg, #145da1); border-color: var(--accent, #83bdff); box-shadow: 0 4px 20px #0003; }
+.button.primary:hover, .play-button:hover { background: var(--action-hover, #196bb4); }
 .play-button, .details-button { min-width: 143px; min-height: 49px; font-size: 18px; font-weight: 400; }
 .play-button .icon { fill: currentColor; width: 19px; height: 19px; stroke-width: 1; }
 .details-button { background: #040d17a8; border-color: #a7bbcf; }
@@ -103,7 +112,7 @@ main { padding: 0 32px; min-width: 0; max-width: 2100px; margin: auto; }
 .button.subtle:hover { background: #263f59; border-color: #86acd0; }
 .hero-favorite { width: 43px; height: 43px; display: grid; place-items: center; color: #c8d8e8; background: #0815249c; border: 1px solid #758da665; border-radius: 5px; }
 .hero-favorite:hover { background: #273c55; }
-.hero-favorite.is-favorite .icon { fill: #70baff; stroke: #70baff; }
+.hero-favorite.is-favorite .icon { fill: var(--accent); stroke: var(--accent); }
 .hero-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #a1b6cb; font-size: 10px; margin-top: 21px; }
 .hero-meta .icon { width: 13px; height: 13px; }
 .hero-meta>span { margin-inline: 3px; }
@@ -143,18 +152,18 @@ main { padding: 0 32px; min-width: 0; max-width: 2100px; margin: auto; }
 .game-art-button::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg,#000b,transparent 52%,#0002); }
 .game-art-button img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 66% center; z-index: -2; transition: transform .25s; }
 .game-art-button:hover img { transform: scale(1.04); }
-.selected-card .game-art-button { border-color: #54bdff; box-shadow: 0 0 0 2px #1689ff,0 4px 22px #0089ff26; }
+.selected-card .game-art-button { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent),0 4px 22px #0003; }
 .cover-wordmark { position: absolute; top: 21px; left: 15px; right: 15px; color: #f0f5fc; font-family: Georgia,serif; font-size: clamp(20px,1.9vw,29px); text-transform: uppercase; line-height: 1.19; letter-spacing: 3px; text-align: center; text-shadow: 0 2px 10px #000d; overflow-wrap: anywhere; }
 .cover-wordmark { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .cover-system { position: absolute; bottom: 11px; left: 10px; padding: 4px 6px; border: 1px solid #9cacbd62; border-radius: 3px; background: #061626bd; color: #d8e7f5; font-size: 8px; letter-spacing: 1px; }
-.cover-select { position: absolute; bottom: 10px; right: 10px; display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #0789ff; color: white; opacity: 0; }
+.cover-select { position: absolute; bottom: 10px; right: 10px; display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: var(--action-bg); color: white; opacity: 0; }
 .cover-select .icon { width: 15px; height: 15px; }
 .selected-card .cover-select { opacity: 1; }
 .card-info { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; padding-top: 10px; }
 .card-info>div { min-width: 0; }
 .card-title { padding: 0; background: transparent; color: #c4d3e3; font-size: 12px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; }
 .card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.card-title:hover, .selected-card .card-title { color: #69b8ff; }
+.card-title:hover, .selected-card .card-title { color: var(--accent-ink); }
 .card-info p { margin: 5px 0 0; color: #90a5bd; font-size: 9px; line-height: 1.5; }
 .card-menu { flex-shrink: 0; width: 24px; height: 25px; background: transparent; color: #a0b4cb; border-radius: 3px; }
 .card-menu:hover { background: #23415c; color: white; }
@@ -167,7 +176,7 @@ main { padding: 0 32px; min-width: 0; max-width: 2100px; margin: auto; }
 .list-layout .cover-wordmark, .list-layout .cover-system, .list-layout .cover-select, .list-layout .card-favorite { display: none; }
 .list-layout .card-info { flex: 1; padding: 0 10px 0 0; align-items: center; }
 .list-layout .card-title { font-size: 14px; }
-.list-layout .selected-card { border-color: #2d94eb; }
+.list-layout .selected-card { border-color: var(--accent); }
 .empty-collection { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; border: 1px dashed #46637e; border-radius: 6px; background: #081624c9; padding: 30px; text-align: center; }
 .empty-collection>.icon { width: 29px; height: 29px; color: #86acd0; }
 .empty-collection h3 { font-size: 18px; font-weight: 500; margin: 14px 0 8px; }
@@ -180,6 +189,30 @@ main { padding: 0 32px; min-width: 0; max-width: 2100px; margin: auto; }
 .page-footer kbd { border: 1px solid #667f98; border-radius: 3px; color: #b5c9de; font-size: 10px; padding: 2px 5px; margin-left: 7px; }
 .preview-note { margin-right: 10px; font-size: 9px; }
 .footer-separator { margin: 0 5px; }
+
+/* Personal Home uses the same cards and selection contract as Library. */
+.home-actions { display: flex; align-items: center; gap: 10px; }
+.home-actions .button { min-height: 34px; font-size: 11px; }
+.home-collection > .collection-toolbar { margin-bottom: 26px; }
+.home-collection .search-box { width: 240px; }
+.home-group { min-width: 0; margin-bottom: 29px; }
+.home-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+.home-group-heading h3 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: .3px; }
+.home-group-heading h3 span { margin-left: 7px; font-size: 11px; font-weight: 400; color: #a6b8cb; }
+.home-group-heading p { margin: 7px 0 0; font-size: 11px; line-height: 1.5; color: #a6b8cb; }
+.home-group-heading .text-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none; padding: 9px 5px; }
+.home-group-heading .text-button .icon { width: 14px; height: 14px; }
+.home-shelf .game-card { flex-basis: clamp(148px,12.5vw,192px); }
+.home-shelf .game-art-button { aspect-ratio: 4/4.5; }
+.home-shelf .cover-wordmark { font-size: clamp(19px,1.6vw,24px); letter-spacing: 2px; top: 20px; }
+.home-group-empty { padding: 18px 20px; background: #0b1b2abb; border: 1px dashed #40566c; border-radius: 5px; }
+.home-group-empty p { margin: 0; font-size: 12px; line-height: 1.6; color: #afc2d5; }
+.home-session { display: flex; align-items: center; gap: 13px; padding: 14px 18px; margin-bottom: 24px; border: 1px solid #4f6c86; background: #101f30ed; border-radius: 5px; }
+.home-session > span { min-width: 0; flex: 1; font-size: 11px; color: #b2c6db; }
+.home-session strong { display: block; font-size: 13px; font-weight: 500; margin-top: 4px; color: #e1edf8; overflow-wrap: anywhere; }
+.home-session .text-button { flex-shrink: 0; }
+@media (max-width: 1000px) { .home-collection > .collection-header { align-items: flex-start; } .home-collection > .collection-header .section-title { flex-direction: column; gap: 7px; } }
+@media (max-width: 600px) { .home-collection > .collection-header { flex-wrap: wrap; } .home-actions { width: 100%; justify-content: space-between; } .home-collection .search-box { width: 100%; } .home-group-heading { gap: 10px; } .home-group-heading h3 { font-size: 14px; } .home-group-heading p { font-size: 10px; } .home-session { flex-wrap: wrap; } .home-shelf .game-card { flex-basis: 148px; } }
 
 /* Shared dialog controls and error presentation. */
 .notice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; margin-bottom: 14px; background: #14283d; border: 1px solid #415b73; border-radius: 5px; color: #bed2e7; font-size: 12px; line-height: 1.6; }
