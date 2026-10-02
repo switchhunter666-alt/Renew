@@ -18,7 +18,7 @@ test('rendered preview: search, selection, favorites, dialogs, settings and empt
   await page.getByRole('button',{name:'Got it',exact:true}).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button',{name:'Settings',exact:true}).click();
-  await page.screenshot({path:testInfo.outputPath('renew-settings-preview.png'),fullPage:true});
+  await page.screenshot({path:testInfo.outputPath('renew-settings-preview.png'),fullPage:false});
   await page.getByRole('switch',{name:'Start games fullscreen'}).uncheck();
   await page.getByRole('button',{name:'Done',exact:true}).click();
   await page.getByRole('button',{name:'Settings',exact:true}).click();

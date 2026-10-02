@@ -112,3 +112,46 @@ test('saving visibly locks the current form while leaving dismissal available',a
   assert.equal(context.dialog.getAttribute('aria-busy'),'true');
   task.resolve(context.copy());await settle();assert.equal(context.dialog.open,false);
 });
+test('a reopened settings dialog reconciles a late successful setting save',async()=>{
+  const task=deferred();const context=await setup({updateSettings:()=>task.promise});
+  click('[data-action="settings"]');const toggle=document.querySelector('#fullscreen');toggle.checked=false;toggle.dispatchEvent(new window.Event('change'));
+  click('[data-close]');click('[data-action="settings"]');
+  assert.equal(document.querySelector('#fullscreen').disabled,true);
+  const result=context.copy();result.settings.fullscreen=false;task.resolve(result);await settle();
+  assert.equal(document.querySelector('#fullscreen').checked,false);
+  assert.equal(document.querySelector('#fullscreen').disabled,false);
+});
+test('a different details dialog reflects a pending mutation rather than dropping its Save silently',async()=>{
+  const task=deferred();let calls=0;const context=await setup({updateGame:()=>{calls++;return task.promise}});
+  click('[data-focus="details-a"]');click('#save-title');click('[data-close]');click('[data-focus="details-b"]');
+  assert.equal(document.querySelector('#save-title').disabled,true);
+  assert.equal(document.querySelector('#game-title').disabled,true);
+  assert.equal(context.dialog.getAttribute('aria-busy'),'true');
+  click('#save-title');assert.equal(calls,1);
+  task.resolve(context.copy());await settle();
+  assert.equal(document.querySelector('#save-title').disabled,false);
+  assert.equal(document.querySelector('#dialog-title').textContent,'Blue Moon');
+  assert.equal(context.dialog.open,true);
+});
+test('removing the originating card returns keyboard focus to Add games',async()=>{
+  await setup();document.querySelector('[data-focus="details-a"]').focus();click('[data-focus="details-a"]');click('#remove-game');click('#confirm-remove');await settle();
+  assert.equal(document.activeElement.dataset.focus,'import');
+});
+test('a failed title save preserves the draft and offers a retry in the same dialog',async()=>{
+  let attempts=0;await setup({updateGame:async()=>{attempts++;throw new Error('Disk is full. Try again after freeing space.')}});
+  click('[data-focus="details-a"]');document.querySelector('#game-title').value='Keep my draft';click('#save-title');await settle();
+  assert.equal(document.querySelector('#dialog').open,true);
+  assert.equal(document.querySelector('#game-title').value,'Keep my draft');
+  assert.equal(document.querySelector('#save-title').disabled,false);
+  assert.match(document.querySelector('[data-operation-error]').textContent,/Disk is full/);
+  click('#save-title');await settle();assert.equal(attempts,2);
+  assert.equal(document.querySelectorAll('[data-operation-error]').length,1);
+  assert.equal(document.querySelector('#game-title').value,'Keep my draft');
+});
+test('reopening the same game during a successful rename reconciles its untouched input',async()=>{
+  const task=deferred();const context=await setup({updateGame:()=>task.promise});
+  click('[data-focus="details-a"]');document.querySelector('#game-title').value='Renamed Green World';click('#save-title');click('[data-close]');click('[data-focus="details-a"]');
+  const result=context.copy();result.games[0].title='Renamed Green World';task.resolve(result);await settle();
+  assert.equal(document.querySelector('#game-title').value,'Renamed Green World');
+  assert.equal(document.querySelector('#dialog-title').textContent,'Renamed Green World');
+});

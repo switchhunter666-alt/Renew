@@ -150,12 +150,12 @@ test('launch passes spaces and metacharacters as one literal argument with no sh
   await f.service.flush();
 });
 
-test('windowed launch omits fullscreen flag', async t => {
+test('windowed launch explicitly overrides an inherited fullscreen preference', async t => {
   const f = await fixture(t);
   const id = await f.ready();
   await f.service.updateSettings({ fullscreen: false });
   await f.service.launchGame(id);
-  assert.deepEqual(f.calls[0][1], ['--', ROM]);
+  assert.deepEqual(f.calls[0][1], ['-C', 'fullscreen=0', '--', ROM]);
   f.child.emit('close', 0, null);
   await f.service.flush();
 });
@@ -472,4 +472,32 @@ test('wall-clock rollback between checkpoints cannot credit the same play time t
   await f.service.flush({ requireSaved: true });
   assert.equal(f.service.getState().games[0].playSeconds, 10);
   assert.equal(JSON.parse(await fs.readFile(f.statePath, 'utf8')).games[0].playSeconds, 10);
+});
+
+test('duplicate-only imports preserve the higher-priority unsaved-session warning', async t => {
+  const f = await fixture(t);
+  const id = await f.ready();
+  await f.service.launchGame(id);
+  f.child.emit('spawn');
+  await f.service.flush();
+  f.tick(9000);
+  const originalRename = f.fileAPI.rename;
+  f.fileAPI.rename = async () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
+  f.child.emit('close', 0, null);
+  await f.service.flush();
+  const warning = f.service.getState().warning;
+  assert.match(warning, /could not save.*kept in memory/);
+  const duplicateState = await f.service.importGames([ROM]);
+  assert.equal(duplicateState.warning, warning);
+  assert.equal(duplicateState.games.length, 1);
+  assert.equal(duplicateState.games[0].playSeconds, 9);
+  assert.equal(JSON.parse(await fs.readFile(f.statePath, 'utf8')).games[0].playSeconds, 0);
+  assert.equal((await f.service.importGames([])).warning, warning);
+  await assert.rejects(f.service.flush({ requireSaved: true }), /could not save/);
+  f.fileAPI.rename = originalRename;
+  await f.service.checkpointSession();
+  await f.service.flush({ requireSaved: true });
+  assert.equal(f.service.getState().warning, null);
+  assert.equal(JSON.parse(await fs.readFile(f.statePath, 'utf8')).games[0].playSeconds, 9);
+  assert.match((await f.service.importGames([ROM])).warning, /1 game was already/);
 });

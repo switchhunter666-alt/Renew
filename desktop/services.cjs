@@ -236,7 +236,10 @@ class LauncherService {
       if (games.length > 50000) throw new Error('This library has reached the 50,000-game limit. Remove unused entries before importing more.');
       if (additions.length) await this._persist(this._document(games));
       this.games = games;
-      this.warning = duplicates ? `${duplicates} game${duplicates === 1 ? ' was' : 's were'} already in your library and skipped.` : null;
+      // Duplicate-only imports do not write, so they cannot clear an unsaved-session warning.
+      if (!this._unsavedSession) {
+        this.warning = duplicates ? `${duplicates} game${duplicates === 1 ? ' was' : 's were'} already in your library and skipped.` : null;
+      }
       this.error = null;
       return this.getState();
     });
@@ -314,7 +317,7 @@ class LauncherService {
         this.session = { gameId: game.id, status: 'launching', startedAt: record.startedAt };
         this._notify();
         // No shell, interpolation, user-supplied flags, or command strings.
-        const args = [...(this.settings.fullscreen ? ['-f'] : []), '--', rom];
+        const args = [...(this.settings.fullscreen ? ['-f'] : ['-C', 'fullscreen=0']), '--', rom];
         try {
           const child = this.spawn(executable, args, { shell: false, windowsHide: true,
             detached: true, stdio: 'ignore', cwd: this.paths.dirname(executable) });

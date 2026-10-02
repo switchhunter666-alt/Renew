@@ -7,7 +7,7 @@ const app = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
 const toast = document.querySelector('#toast');
 let state, selectedId, busy = false, toastTimer;
-let dialogGeneration = 0, dialogReturnFocus = null;
+let dialogGeneration = 0, dialogReturnFocus = null, dialogGameId = null;
 const ui = { view: 'library', system: 'all', query: '', sort: 'recent', layout: 'grid' };
 const paths = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -98,13 +98,31 @@ function hero(game) {
 function emptyHero() { return `<section class="hero empty-hero"><img class="hero-art" src="./art/aurora.svg" alt=""><div class="hero-shade"></div><div class="hero-copy"><span class="hero-kicker"><i></i>A FRESH START</span><h2>A new home for<br>old favorites.</h2><p>Add the games you own. Pick your mGBA emulator.<br>Make a little time for yourself.</p><button class="button play-button" data-action="import" data-focus="empty-import" ${busy ? 'disabled' : ''}>${icon('plus')} Add your first game</button><div class="hero-meta">GBA, Game Boy Color & Game Boy</div></div><div class="art-caption"><span>EVERY ADVENTURE STARTS SOMEWHERE</span><div>${icon('leaf')} RENEW ORIGINALS</div></div></section>`; }
 function card(game) { return `<article class="game-card ${selectedId === game.id ? 'selected-card' : ''}"><button class="game-art-button" data-action="select" data-id="${esc(game.id)}" data-focus="select-${esc(game.id)}" aria-label="Select ${esc(game.title)}" aria-pressed="${selectedId === game.id}"><img src="${artwork(game)}" alt="" loading="lazy"><span class="cover-system">${esc(game.system)}</span><span class="cover-wordmark">${esc(game.title)}</span><span class="cover-select">${icon(selectedId === game.id ? 'check' : 'chevron')}</span></button><div class="card-info"><div><button class="card-title" data-action="select" data-id="${esc(game.id)}" data-focus="title-${esc(game.id)}">${esc(game.title)}</button><p>${esc(formatTime(game.playSeconds))}${game.sample ? ' · Sample' : ''}</p></div><button class="card-menu" data-action="details" data-id="${esc(game.id)}" data-focus="details-${esc(game.id)}" aria-label="Details for ${esc(game.title)}">${icon('more')}</button></div>${game.favorite ? `<span class="card-favorite" aria-label="Favorite">${icon('heart')}</span>` : ''}</article>`; }
 function emptyCollection() { return `<div class="empty-collection">${icon(ui.query ? 'search' : ui.view === 'favorites' ? 'heart' : 'game')}<h3>${ui.query ? 'No games found' : ui.view === 'favorites' ? 'Make room for your favorites' : ui.system !== 'all' ? 'No games for this system yet' : 'A good collection starts with one.'}</h3><p>${ui.query ? 'Try a different name or clear your filters.' : ui.view === 'favorites' ? 'Tap the heart on a game to keep it close.' : 'Add uncompressed .gba, .gbc or .gb files from your computer.'}</p>${ui.query || ui.system !== 'all' ? '<button class="button subtle" data-action="reset-filters">Clear filters</button>' : ui.view !== 'favorites' ? '<button class="button subtle" data-action="import">Add games</button>' : ''}</div>`; }
+function syncDialogState() {
+  if (!dialog.open) return;
+  dialog.querySelectorAll('input, select, button:not([data-close])').forEach(control => { control.disabled = busy; });
+  if (busy) dialog.setAttribute('aria-busy', 'true'); else dialog.removeAttribute('aria-busy');
+  if (!busy) {
+    for (const setting of ['fullscreen', 'returnToLauncher']) {
+      const control = dialog.querySelector(`#${setting}`);
+      if (control) control.checked = state.settings[setting];
+    }
+    const game = state.games.find(entry => entry.id === dialogGameId);
+    const titleField = dialog.querySelector('#game-title');
+    if (game && titleField) {
+      if (titleField.value === titleField.dataset.loadedTitle) titleField.value = game.title;
+      titleField.dataset.loadedTitle = game.title;
+      dialog.querySelector('#dialog-title').textContent = game.title;
+    }
+    const emulator = dialog.querySelector('.emulator-path span');
+    if (emulator) emulator.textContent = state.settings.emulatorPath || 'No emulator selected';
+  }
+}
 async function run(operation, success, originGeneration = null) {
   if (busy) return;
   busy = true;
-  const locked = originGeneration === dialogGeneration && dialog.open
-    ? [...dialog.querySelectorAll('input, select, button:not([data-close])')].filter(control => !control.disabled) : [];
-  locked.forEach(control => { control.disabled = true; });
-  if (locked.length) dialog.setAttribute('aria-busy', 'true');
+  if (originGeneration === dialogGeneration) dialog.querySelector('[data-operation-error]')?.remove();
+  syncDialogState();
   render();
   let succeeded = false;
   try {
@@ -113,12 +131,18 @@ async function run(operation, success, originGeneration = null) {
     if (success) notify(success);
     succeeded = true;
   } catch (error) {
-    if (originGeneration === null || (originGeneration === dialogGeneration && dialog.open)) showError(error);
-    else notify(error.message || String(error));
+    if (originGeneration === null) showError(error);
+    else if (originGeneration === dialogGeneration && dialog.open) {
+      const feedback = document.createElement('div');
+      feedback.className = 'notice warning';
+      feedback.setAttribute('role', 'alert');
+      feedback.dataset.operationError = 'true';
+      feedback.textContent = error.message || String(error);
+      dialog.append(feedback);
+    } else notify(error.message || String(error));
   } finally {
     busy = false;
-    locked.forEach(control => { if (control.isConnected) control.disabled = false; });
-    if (originGeneration === dialogGeneration) dialog.removeAttribute('aria-busy');
+    syncDialogState();
     render();
   }
   return succeeded;
@@ -134,9 +158,11 @@ function showDialog(content) {
   dialogGeneration++;
   if (dialog.open) dialog.close();
   dialog.removeAttribute('aria-busy');
+  dialogGameId = null;
   dialog.innerHTML = content;
   dialog.showModal();
   dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', closeDialog));
+  syncDialogState();
   return dialogGeneration;
 }
 function showError(error) {
@@ -145,12 +171,14 @@ function showError(error) {
 function showSettings() {
   const generation = showDialog(`<div class="dialog-top"><span class="dialog-icon">${icon('settings')}</span><button class="icon-button" data-close aria-label="Close settings">${icon('close')}</button></div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h2 id="dialog-title">A little setup. Then play.</h2><p class="dialog-description">Renew keeps your library on this computer. Your games and emulator stay exactly where you put them.</p><section class="settings-section"><div class="setting-heading"><h3>Your emulator</h3><span class="tag">mGBA</span></div><div class="emulator-path">${icon('folder')}<span>${esc(state.settings.emulatorPath || 'No emulator selected')}</span></div><button class="button subtle full-width" id="choose-emulator">${icon('folder')} Choose mGBA executable</button><p class="field-hint">Use an existing mGBA installation from mgba.io. Renew does not download or bundle emulators.</p></section><section class="settings-section"><label class="setting-row"><span><strong>Start games fullscreen</strong><small>Go straight into your game</small></span><input type="checkbox" id="fullscreen" role="switch" ${state.settings.fullscreen ? 'checked' : ''}></label><label class="setting-row"><span><strong>Come back to Renew</strong><small>Restore the launcher when mGBA exits</small></span><input type="checkbox" id="returnToLauncher" role="switch" ${state.settings.returnToLauncher ? 'checked' : ''}></label></section>${isPreview ? '<div class="notice">These preview settings last for this tab only. Native launch and Windows focus behavior are not measured here.</div><button class="text-button" id="clear-preview">Explore the empty-library state</button>' : ''}<div class="dialog-actions"><button class="button primary" data-close>Done</button></div>`);
   dialog.querySelector('#choose-emulator').addEventListener('click', async () => { const ok = await run(() => api.chooseEmulator(), null, generation); if (ok && generation === dialogGeneration && dialog.open) showSettings(); });
-  for (const setting of ['fullscreen','returnToLauncher']) dialog.querySelector(`#${setting}`).addEventListener('change', async event => { const value = event.target.checked; try { applyState(await api.updateSettings({ [setting]: value })); announce('Setting saved'); } catch (error) { if (generation === dialogGeneration && dialog.open) showError(error); else notify(error.message); } });
+  for (const setting of ['fullscreen','returnToLauncher']) dialog.querySelector(`#${setting}`).addEventListener('change', async event => { const value = event.target.checked; const ok = await run(() => api.updateSettings({ [setting]: value }), null, generation); if (ok) announce('Setting saved'); });
   dialog.querySelector('#clear-preview')?.addEventListener('click', async () => { applyState(await api.clearPreview()); if (generation === dialogGeneration) closeDialog(); });
 }
 function showDetails(id, draft = null) {
   const game = state.games.find(item => item.id === id); if (!game) return;
   const generation = showDialog(`<div class="dialog-top"><span class="tag">${esc(platformName(game.system))}</span><button class="icon-button" data-close aria-label="Close game details">${icon('close')}</button></div><img class="detail-art" src="${artwork(game)}" alt=""><h2 id="dialog-title">${esc(game.title)}</h2><p class="dialog-description">${esc(formatTime(game.playSeconds))}${game.sample ? ' · Fictional preview title' : ''}</p><label class="field-label" for="game-title">Display name</label><input class="text-input" id="game-title" maxlength="160" value="${esc(draft?.title ?? game.title)}"><p class="field-hint">${game.sample ? 'Sample content, no ROM attached.' : `File: ${esc(game.path)}`}</p><div class="detail-actions"><button class="button subtle" id="save-title">Save name</button><button class="button subtle" id="detail-favorite">${icon('heart')} ${game.favorite ? 'Unfavorite' : 'Favorite'}</button></div><div class="remove-row"><span>Remove from library<br><small>Your original game file stays untouched</small></span><button class="text-button danger" id="remove-game">Remove</button></div>`);
+  dialogGameId = id;
+  dialog.querySelector('#game-title').dataset.loadedTitle = game.title;
   dialog.querySelector('#save-title').addEventListener('click', async () => { const title = dialog.querySelector('#game-title').value.trim(); if (!title) { dialog.querySelector('#game-title').setCustomValidity('Enter a display name.'); dialog.querySelector('#game-title').reportValidity(); return; } const ok = await run(() => api.updateGame(id,{title}), 'Game name updated', generation); if (ok && generation === dialogGeneration && dialog.open) closeDialog(); });
   dialog.querySelector('#game-title').addEventListener('input', event => event.target.setCustomValidity(''));
   dialog.querySelector('#detail-favorite').addEventListener('click', async () => { const draft = { title: dialog.querySelector('#game-title').value }; const ok = await run(() => api.updateGame(id,{favorite:!game.favorite}), null, generation); if (ok && generation === dialogGeneration && dialog.open) { showDetails(id, draft); dialog.querySelector('#detail-favorite')?.focus(); } });
