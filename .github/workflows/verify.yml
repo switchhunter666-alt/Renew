@@ -1,0 +1,67 @@
+name: Verify Renew
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    name: Unit and DOM · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run verify
+  browser:
+    name: Chromium UI and screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renew-ui-evidence
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
+  package:
+    name: Unsigned Windows portable package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run package:win -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renew-windows-portable-unsigned
+          path: dist/*.exe
+          retention-days: 14
