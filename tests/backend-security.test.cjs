@@ -136,7 +136,7 @@ test('native window uses isolation, sandbox, and denies navigation, popups, webv
   h.permissions.request(null, 'camera', value => { allowed = value; });
   assert.equal(allowed, false);
   assert.equal(h.permissions.check(), false);
-  assert.equal(h.service.options.statePath, '/application-data/renew/library.json');
+  assert.equal(h.service.options.statePath, path.join('/application-data/renew', 'library.json'));
 });
 
 test('IPC accepts only the launcher main frame, and rejects unknown window actions', async () => {

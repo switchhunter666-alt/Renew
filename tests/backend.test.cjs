@@ -14,6 +14,7 @@ const OTHER = 'C:\\My ROMs\\Second.gbc';
 
 async function fixture(t, overrides = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'renew-test-'));
+  const statePath = path.join(directory, 'library.json');
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const files = new Map();
   const add = (file, target = file, regular = true) => files.set(canonicalPath(file, 'win32'), { target, regular });
@@ -21,6 +22,9 @@ async function fixture(t, overrides = {}) {
   add(EXE); add(ROM); add(OTHER);
   const fileAPI = { ...fs,
     async stat(file) {
+      // On Windows the real temporary library also has a drive-letter path.
+      // Keep persistence on the real filesystem instead of treating it as a ROM.
+      if (file === statePath) return fs.stat(file);
       if (/^[a-z]:[\\/]/i.test(file)) {
         const entry = files.get(canonicalPath(file, 'win32'));
         if (!entry) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
@@ -43,7 +47,6 @@ async function fixture(t, overrides = {}) {
   const child = new EventEmitter();
   child.unref = () => { child.unrefCount = (child.unrefCount || 0) + 1; };
   child.kill = () => { throw new Error('Renew must never kill the emulator.'); };
-  const statePath = path.join(directory, 'library.json');
   const service = new LauncherService({ statePath, platform: 'win32', fsImpl: fileAPI,
     spawnImpl: (...args) => { calls.push(args); return child; },
     now: () => time, idFactory: () => `game-${++id}`,
