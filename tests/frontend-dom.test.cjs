@@ -155,3 +155,27 @@ test('reopening the same game during a successful rename reconciles its untouche
   assert.equal(document.querySelector('#game-title').value,'Renamed Green World');
   assert.equal(document.querySelector('#dialog-title').textContent,'Renamed Green World');
 });
+test('a reopened details dialog reflects a late favorite response and toggles from current state',async()=>{
+  const task=deferred();const calls=[];let result;
+  const context=await setup({updateGame:async(id,patch)=>{calls.push(patch);if(calls.length===1)return task.promise;result.games.find(g=>g.id===id).favorite=patch.favorite;return structuredClone(result)}});
+  click('[data-focus="details-b"]');click('#detail-favorite');click('[data-close]');click('[data-focus="details-b"]');
+  result=context.copy();result.games[1].favorite=true;task.resolve(structuredClone(result));await settle();
+  assert.match(document.querySelector('#detail-favorite').textContent,/Unfavorite/);
+  click('#detail-favorite');await settle();
+  assert.deepEqual(calls,[{favorite:true},{favorite:false}]);
+  assert.match(document.querySelector('#detail-favorite').textContent,/Favorite/);
+});
+test('navigation collapse is named, keyboard-focusable and persists its presentation-only choice',async()=>{
+  await setup();const toggle=document.querySelector('[data-action="toggle-menu"]');toggle.focus();
+  assert.equal(toggle.getAttribute('aria-expanded'),'false');assert.ok(document.querySelector('#app').classList.contains('menu-collapsed'));
+  toggle.click();
+  assert.equal(document.querySelector('[data-action="toggle-menu"]').getAttribute('aria-expanded'),'true');
+  assert.equal(document.activeElement.dataset.focus,'menu-toggle');
+  assert.equal(window.localStorage.getItem('renew.view.sidebar.v1'),'expanded');
+  click('[data-action="toggle-menu"]');assert.equal(window.localStorage.getItem('renew.view.sidebar.v1'),'collapsed');
+  assert.equal(document.querySelector('[data-focus="nav-library"]').getAttribute('title'),'Library');
+});
+test('library row keeps its scroll position through selection rerenders',async()=>{
+  await setup();document.querySelector('.game-grid').scrollLeft=240;click('[data-focus="select-b"]');
+  assert.equal(document.querySelector('.game-grid').scrollLeft,240);
+});

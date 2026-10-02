@@ -1,11 +1,12 @@
 # Renew
 
-**A new home for old favorites.** A focused, Windows-first mGBA launcher with a local game library, a calm green interface, and original landscape artwork.
+**A new home for old favorites.** A focused, Windows-first mGBA launcher with a local game library, a blue/charcoal console-inspired interface, and original landscape artwork.
 
 ## First Light · v0.1.0
 
 - Manually add uncompressed `.gba`, `.gbc`, and `.gb` files you own
-- Search, filter by system, sort, choose grid/list view, rename and favorite games
+- Search, filter by system, sort, choose row/list view, rename and favorite games
+- Expand or collapse the navigation rail; Renew remembers this presentation choice
 - Choose an existing mGBA `.exe`; launch with literal arguments and no shell
 - Track the launched child process, prevent overlapping launches, and restore Renew on exit when enabled
 - Store the library atomically in the app's user-data folder; preserve corrupt data and refuse unsafe writes
@@ -49,10 +50,14 @@ npm run test:e2e
 
 ## Architecture
 
-- `desktop/services.cjs`: testable library persistence and process lifecycle
+- `desktop/services.cjs`: ordered application commands and copied UI state
+- `desktop/library-store.cjs`: validated, atomic local storage
+- `desktop/mgba-session.cjs`: safe executable launch and process/time tracking
 - `desktop/main.cjs`: Electron window, trusted IPC handlers and native dialogs
 - `desktop/preload.cjs`: narrow, isolated renderer capabilities
-- `src/`: browser-rendered UI with a strict content security policy
+- `src/app.js`: UI interactions and dialog lifecycle
+- `src/view.js`, `src/model.js`, `src/visuals.js`: pure view/model/artwork helpers
+- `src/preferences.js`: presentation-only menu preference
 - `src/preview.js`: explicit visual-preview-only sample adapter
 - `tests/`: regression tests; `tests/e2e/`: rendered browser interactions
 

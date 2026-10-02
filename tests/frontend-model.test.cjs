@@ -33,3 +33,15 @@ test('original art selection is deterministic and bounded', async () => {
   assert.equal(artForId('same'),artForId('same'));
   assert.ok(['aurora','ember','ocean','violet'].includes(artForId('../../other')));
 });
+test('sidebar preference remembers both modes and fails safely when storage is unavailable', async () => {
+  const {readSidebarPreference,writeSidebarPreference} = await import('../src/preferences.js');
+  const values=new Map(); const host={localStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)}};
+  assert.equal(readSidebarPreference(host),true);
+  assert.equal(writeSidebarPreference(host,false),true);
+  assert.equal(readSidebarPreference(host),false);
+  assert.equal(writeSidebarPreference(host,true),true);
+  assert.equal(readSidebarPreference(host),true);
+  const denied={get localStorage(){throw new Error('storage denied')}};
+  assert.equal(readSidebarPreference(denied),true);
+  assert.equal(writeSidebarPreference(denied,false),false);
+});

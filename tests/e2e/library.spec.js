@@ -46,3 +46,52 @@ test('preview never silently replaces a missing desktop connection',async({page}
   await expect(page.getByRole('heading',{name:'Renew couldn’t open your library'})).toBeVisible();
   await expect(page.locator('.game-card')).toHaveCount(0);
 });
+
+test('concept C menu collapses, keeps keyboard focus and remembers the choice',async({page},testInfo)=>{
+  await page.goto('/?preview=1');
+  const toggle=page.getByRole('button',{name:'Expand navigation menu',exact:true});
+  await expect(toggle).toHaveAttribute('aria-expanded','false');
+  await toggle.focus();await toggle.press('Enter');
+  const collapse=page.getByRole('button',{name:'Collapse navigation menu',exact:true});
+  await expect(collapse).toBeFocused();await expect(collapse).toHaveAttribute('aria-expanded','true');
+  await page.screenshot({path:testInfo.outputPath('renew-menu-expanded.png'),fullPage:true});
+  await page.reload();await expect(page.getByRole('button',{name:'Collapse navigation menu',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Collapse navigation menu',exact:true}).click();
+  await page.screenshot({path:testInfo.outputPath('renew-menu-collapsed.png'),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
+
+test('browser add, details, favorites, sort, views, invalid title and removal controls',async({page})=>{
+  await page.goto('/?preview=1');
+  const chooserPromise=page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:'Add games from quick actions',exact:true}).click();
+  const chooser=await chooserPromise;
+  await chooser.setFiles({name:'CI library fixture.gba',mimeType:'application/octet-stream',buffer:Buffer.alloc(192)});
+  await expect(page.locator('.game-card')).toHaveCount(7);
+  await page.getByRole('button',{name:'Details for CI library fixture',exact:true}).click();
+  await page.getByRole('textbox',{name:'Display name'}).fill('');
+  await page.getByRole('button',{name:'Save name',exact:true}).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(await page.getByRole('textbox',{name:'Display name'}).evaluate(element=>element.validity.valid)).toBe(false);
+  await page.getByRole('textbox',{name:'Display name'}).fill('A verified preview import');
+  await page.getByRole('button',{name:'Save name',exact:true}).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.getByRole('button',{name:'Select A verified preview import',exact:true}).click();
+  await page.getByRole('button',{name:'Add to favorites',exact:true}).click();
+  await page.getByRole('button',{name:'Favorites',exact:true}).click();
+  await expect(page.locator('.game-card')).toHaveCount(3);
+  await page.getByRole('combobox',{name:'Sort games'}).selectOption('title');
+  await page.getByRole('button',{name:'List view',exact:true}).click();
+  await expect(page.locator('.game-grid')).toHaveClass(/list-layout/);
+  await page.getByRole('button',{name:'Grid view',exact:true}).click();
+  await expect(page.locator('.game-grid')).not.toHaveClass(/list-layout/);
+  await page.getByRole('button',{name:'Details for A verified preview import',exact:true}).click();
+  await page.getByRole('button',{name:'Remove',exact:true}).click();
+  await page.getByRole('button',{name:'Keep game',exact:true}).click();
+  await expect(page.locator('.game-card')).toHaveCount(3);
+  await page.getByRole('button',{name:'Details for A verified preview import',exact:true}).click();
+  await page.getByRole('button',{name:'Remove',exact:true}).click();
+  await page.getByRole('button',{name:'Remove from library',exact:true}).click();
+  await expect(page.locator('.game-card')).toHaveCount(2);
+  await expect(page.getByRole('button',{name:'Add games',exact:true})).toBeFocused();
+});
