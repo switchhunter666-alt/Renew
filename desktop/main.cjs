@@ -2,14 +2,13 @@
 
 const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { isTrustedFileURL } = require('./trusted-file-url.cjs');
 const { LauncherService } = require('./services.cjs');
 const { collectDeviceInfo } = require('./device-info.cjs');
 
 app.setName('Renew');
 app.setAppUserModelId('app.renew.launcher');
 const entryPath = path.join(__dirname, '..', 'src', 'index.html');
-const entryURL = pathToFileURL(entryPath).href;
 let window = null;
 let service = null;
 let closeApproved = false;
@@ -20,7 +19,7 @@ function currentWindow() { return window && !window.isDestroyed() ? window : nul
 function trusted(event) {
   const target = currentWindow();
   if (!target || event.sender !== target.webContents || event.senderFrame !== target.webContents.mainFrame ||
-      event.senderFrame.url.split('#')[0] !== entryURL) {
+      !isTrustedFileURL(event.senderFrame.url, entryPath)) {
     throw new Error('This request did not come from the Renew launcher.');
   }
 }

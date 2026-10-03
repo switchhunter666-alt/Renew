@@ -10,7 +10,7 @@ const { pathToFileURL } = require('node:url');
 const desktopDirectory = path.join(__dirname, '..', 'desktop');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function mainHarness() {
+async function mainHarness(runtimeDirectory = desktopDirectory) {
   const handlers = new Map();
   const app = new EventEmitter();
   const windows = [];
@@ -40,7 +40,7 @@ async function mainHarness() {
     constructor(options) {
       super(); this.options = options; this.destroyed = false; windows.push(this);
       this.webContents = new EventEmitter();
-      this.webContents.mainFrame = { url: pathToFileURL(path.join(desktopDirectory, '..', 'src', 'index.html')).href };
+      this.webContents.mainFrame = { url: pathToFileURL(path.join(runtimeDirectory, '..', 'src', 'index.html')).href };
       this.webContents.setWindowOpenHandler = handler => { this.openHandler = handler; };
       this.webContents.send = (...args) => { calls.push(['send', ...args]); };
     }
@@ -75,8 +75,8 @@ async function mainHarness() {
     },
   };
   vm.runInNewContext(fs.readFileSync(path.join(desktopDirectory, 'main.cjs'), 'utf8'), {
-    require: name => name === 'electron' ? electron : name === './services.cjs' ? { LauncherService: FakeService } : name === './device-info.cjs' ? require('../desktop/device-info.cjs') : require(name),
-    __dirname: desktopDirectory,
+    require: name => name === 'electron' ? electron : name === './services.cjs' ? { LauncherService: FakeService } : name === './device-info.cjs' ? require('../desktop/device-info.cjs') : name === './trusted-file-url.cjs' ? require('../desktop/trusted-file-url.cjs') : require(name),
+    __dirname: runtimeDirectory,
   }, { filename: 'main.cjs' });
   await settle();
   const window = windows[0];
@@ -228,4 +228,22 @@ test('device information endpoint is read-only, argument-free and trusted-main-f
   await assert.rejects(get({sender: h.window.webContents, senderFrame: {url: h.window.webContents.mainFrame.url}}), /did not come/);
   h.window.webContents.mainFrame.url = 'https://untrusted.example/';
   await assert.rejects(get(h.event()), /did not come/);
+});
+
+
+test('real main trust handler accepts Chromium tilde spelling only for the exact owned document', async () => {
+  const directory = path.join(path.dirname(desktopDirectory), 'RUNNER~1', 'resources', 'app.asar', 'desktop');
+  const h = await mainHarness(directory);
+  const get = h.handlers.get('renew:get-state');
+  const expected = pathToFileURL(path.join(directory,'..','src','index.html')).href;
+  assert.match(expected, /RUNNER%7E1/);
+  const chromiumURL = expected.replace('RUNNER%7E1','RUNNER~1');
+  h.window.webContents.mainFrame.url = chromiumURL;
+  assert.equal((await get(h.event())).session,null);
+  await assert.rejects(get({sender:{},senderFrame:h.window.webContents.mainFrame}), /did not come/);
+  await assert.rejects(get({sender:h.window.webContents,senderFrame:{url:chromiumURL}}), /did not come/);
+  for (const url of [chromiumURL+'?preview=1',chromiumURL+'#fragment',chromiumURL.replace('index.html','other.html'),'https://example.test/index.html']) {
+    h.window.webContents.mainFrame.url=url;
+    await assert.rejects(get(h.event()),/did not come/);
+  }
 });

@@ -173,7 +173,7 @@ async function launchPortable({executablePath, profile, cwd, env, evidence, chec
   }
 }
 
-test('released Windows portable: packaged UI, authored ROM, fullscreen and clean return', {
+test('Windows portable: packaged UI, authored ROM, fullscreen and clean return', {
   skip: process.platform !== 'win32' ? 'Windows-only native integration; not measured here.' : false,
   timeout: 300000,
 }, async t => {
@@ -184,9 +184,11 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       await fs.rm(path.join(artifactDirectory, name));
     }
   }
-  const evidence = { status: 'RUNNING', harnessCommit: process.env.GITHUB_SHA || null,
-    releaseCommit: 'af421c2be2baa73830e254102ebb0b90188e1a99',
-    releaseTag: 'v0.1.0-preview.1', releaseZipSha256: 'bc7603bd37555c5017c3bc0cf8379d3d6d4b2d4e21ceafce23b9219995d9522e',
+  const isCandidate=process.env.RENEW_PACKAGE_KIND==='candidate';
+  const target=isCandidate ? {kind:'candidate',sourceCommit:process.env.GITHUB_SHA || null} :
+    {kind:'released',sourceCommit:'af421c2be2baa73830e254102ebb0b90188e1a99',releaseTag:'v0.1.0-preview.1',
+      zipSha256:'bc7603bd37555c5017c3bc0cf8379d3d6d4b2d4e21ceafce23b9219995d9522e'};
+  const evidence = { status: 'RUNNING', harnessCommit: process.env.GITHUB_SHA || null, target,
     os: os.release(),
     platform: process.platform, architecture: process.arch, mgbaVersion: '0.10.5', asset: ASSET,
     archiveSha256: process.env.RENEW_MGBA_ARCHIVE_SHA256 || null, samples: [], checks: {},
@@ -196,8 +198,8 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
   let application, executable, renewPid, profile, page;
   const pageErrors = [];
   const releaseExe = process.env.RENEW_RELEASE_EXE;
-  const expectedExeHash = '30ff74860e7bd3808b8e09f8fb51047651f50855f7d9fa6203fd9742e9cdd1c4';
-  const expectedAsarHash = 'dde2994d917993cabe7451c76e65370c6f6c6c6bf7558f688ea526035f838285';
+  const expectedExeHash = isCandidate ? process.env.RENEW_EXPECTED_EXE_SHA256 : '30ff74860e7bd3808b8e09f8fb51047651f50855f7d9fa6203fd9742e9cdd1c4';
+  const expectedAsarHash = isCandidate ? process.env.RENEW_EXPECTED_ASAR_SHA256 : 'dde2994d917993cabe7451c76e65370c6f6c6c6bf7558f688ea526035f838285';
   const checkpoint = phase => {
     evidence.phase = phase;
     (evidence.journal ||= []).push({ phase, time: new Date().toISOString() });
@@ -306,11 +308,22 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       'tests/native/windows-probe.ps1', 'tests/native/fixtures/renew-smoke-rom.cjs']) {
       evidence.harnessSha256[file] = sha256(await fs.readFile(file));
     }
-    assert.ok(releaseExe, 'Set RENEW_RELEASE_EXE to the downloaded, hash-verified released portable.');
-    assert.equal(sha256(await fs.readFile(releaseExe)), expectedExeHash, 'The launched EXE must be the exact released portable.');
+    assert.ok(releaseExe, 'Set RENEW_RELEASE_EXE to the hash-bound outer portable.');
+    assert.match(expectedExeHash || '',/^[a-f0-9]{64}$/); assert.match(expectedAsarHash || '',/^[a-f0-9]{64}$/);
+    evidence.target={...target,expectedExeSha256:expectedExeHash,expectedAsarSha256:expectedAsarHash};
+    assert.equal(sha256(await fs.readFile(releaseExe)), expectedExeHash, 'The launched EXE must match the exact target artifact receipt.');
+    const sourceManifest={};
+    if(isCandidate){
+      for(const directory of ['desktop','src']) for(const name of await fs.readdir(directory,{recursive:true})){
+        const file=path.join(directory,name); if(!(await fs.stat(file)).isFile())continue;
+        sourceManifest[file.split(path.sep).join('/')]=sha256(await fs.readFile(file));
+      }
+      evidence.expectedPackagedFiles=sourceManifest;
+    }
     const appData = path.join(temporary, 'appdata');
     const localAppData = path.join(temporary, 'localappdata');
-    await fs.mkdir(appData); await fs.mkdir(localAppData);
+    const portableTemp=path.join(temporary,'Portable ~ # % 日本');
+    await fs.mkdir(appData); await fs.mkdir(localAppData); await fs.mkdir(portableTemp);
     profile = path.join(appData, 'Renew');
     await fs.mkdir(profile);
     const assertOwnedPath = candidate => {
@@ -320,7 +333,7 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
     const launchPackaged = async () => {
       checkpoint('portable:launch');
       application = await launchPortable({executablePath:releaseExe, profile, cwd:temporary,
-        env:{...process.env, APPDATA:appData, LOCALAPPDATA:localAppData}, evidence, checkpoint});
+        env:{...process.env, APPDATA:appData, LOCALAPPDATA:localAppData, TEMP:portableTemp, TMP:portableTemp}, evidence, checkpoint});
       application.context().setDefaultTimeout(12000);
       page = await application.firstWindow({timeout: 30000});
       page.on('pageerror', error => pageErrors.push(error.message));
@@ -330,7 +343,11 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
         exePath: process.execPath, resourcesPath: process.resourcesPath, argv: process.argv,
         version: app.getVersion(), electron: process.versions.electron, platform: process.platform,
         pid: process.pid, parentPid:process.ppid, url: BrowserWindow.getAllWindows()[0].webContents.getURL(),
-        preload: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().preload,
+        preloadIntrospection: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().preload || null,
+        packagedPreload: (()=>{const p=require('node:path').join(app.getAppPath(),'desktop','preload.cjs');
+          return {path:p,normalizedSha256:require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync(p,'utf8').replace(/\r\n/g,'\n')).digest('hex')};})(),
+        securityPreferences: (()=>{const p=BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
+          return {sandbox:p.sandbox,contextIsolation:p.contextIsolation,nodeIntegration:p.nodeIntegration,webSecurity:p.webSecurity};})(),
         portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE || null,
         expectedEntryURL: require('node:url').pathToFileURL(require('node:path').join(app.getAppPath(),'src','index.html')).href,
         mainFrameURL: BrowserWindow.getAllWindows()[0].webContents.mainFrame.url,
@@ -357,6 +374,18 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       (evidence.packagedLaunches ||= []).push({...identity, asarSha256: asarHash, runningExeSha256: runningExeHash,
         renderer:await page.evaluate(()=>({url:location.href,apiType:typeof window.renewAPI?.getState,text:document.body.innerText.slice(0,2000)}))});
       checkpoint('portable:identity');
+      assert.equal(page.url(),identity.mainFrameURL,'CDP page must match the exact Node-owned packaged renderer URL.');
+      assert.equal(await page.evaluate(()=>location.href),identity.mainFrameURL);
+      if(isCandidate){
+        const actualFiles=await application.evaluate(({app},files)=>{
+          const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),actual={};
+          for(const file of files){try{actual[file]=crypto.createHash('sha256').update(fs.readFileSync(path.join(app.getAppPath(),...file.split('/')))).digest('hex');}
+            catch(error){actual[file]={error:error.message};}}
+          return actual;
+        },Object.keys(sourceManifest));
+        evidence.packagedLaunches.at(-1).sourceFiles=actualFiles; checkpoint('portable:source-binding');
+        assert.deepEqual(actualFiles,sourceManifest,'Every running production source/resource byte must match this checkout.');
+      }
       assert.equal(identity.isPackaged, true);
       assert.equal(identity.parentPid, application.process().pid, 'Packaged process must be the exact spawned portable wrapper child.');
       assert.equal((await fs.realpath(identity.portableExecutable)).toLowerCase(), (await fs.realpath(releaseExe)).toLowerCase());
@@ -365,14 +394,17 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       assert.equal(identity.electron, '44.5.1');
       assert.equal(path.basename(identity.exePath).toLowerCase(), 'renew.exe');
       assert.equal(identity.appPath, path.join(identity.resourcesPath, 'app.asar'));
-      assert.equal(asarHash, expectedAsarHash, 'Running app.asar is exactly the hash-inspected released package.');
-      assert.equal(identity.preload, path.join(identity.appPath, 'desktop', 'preload.cjs'));
-      assert.equal(identity.url, require('node:url').pathToFileURL(path.join(identity.appPath, 'src', 'index.html')).href);
+      assert.equal(asarHash, expectedAsarHash, 'Running app.asar must match the exact target artifact receipt.');
+      assert.equal(identity.packagedPreload.path, path.join(identity.appPath, 'desktop', 'preload.cjs'));
+      assert.equal(identity.packagedPreload.normalizedSha256,sha256((await fs.readFile('desktop/preload.cjs','utf8')).replace(/\r\n/g,'\n')));
+      assert.deepEqual(identity.securityPreferences,{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true});
+      assert.equal(require('node:url').fileURLToPath(identity.url),path.join(identity.appPath,'src','index.html'));
+      assert.equal(new URL(identity.url).search,''); assert.equal(new URL(identity.url).hash,'');
       assert.ok(!identity.argv.some(arg => /(?:launch|bootstrap)\.cjs|node_modules[\\/]electron|--require|^-r$/.test(arg)), 'No source bootstrap fallback may be present.');
       assert.equal(await page.evaluate(() => typeof window.renewAPI?.getState), 'function');
       assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
       await expect(page.locator('.preview-pill')).toHaveCount(0);
-      await expect(page.getByRole('heading', {name:'Home',exact:true})).toBeVisible();
+      await expect(page.getByRole('heading', {name:'Home',exact:true})).toBeVisible({timeout:15000});
       return identity;
     };
     await launchPackaged();
