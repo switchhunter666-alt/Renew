@@ -1,0 +1,71 @@
+import {test, expect} from '@playwright/test';
+
+test('personal Home shows recorded shelves, selects scene colors and searches the full Library', async ({page}, testInfo) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/?preview=1');
+  await expect(page.getByRole('heading', {name: 'Home', exact: true})).toBeVisible();
+  await expect(page.locator('[data-shelf="recent"] .game-card')).toHaveCount(4);
+  await expect(page.locator('[data-shelf="favorites"] .game-card')).toHaveCount(2);
+  await expect(page.locator('[data-shelf="unplayed"] .game-card')).toHaveCount(2);
+  await expect(page.locator('#hero-title')).toHaveText('The Last Orchard');
+  await expect(page.locator('#app')).toHaveAttribute('data-palette', 'aurora');
+  await page.screenshot({path: testInfo.outputPath('renew-home-personal.png'), fullPage: true});
+  await page.locator('[data-shelf="unplayed"]').getByRole('button', {name: 'Select Between the Tides', exact: true}).click();
+  await expect(page.locator('#hero-title')).toHaveText('Between the Tides');
+  await expect(page.locator('#app')).toHaveAttribute('data-palette', 'ocean');
+  await expect(page.locator('.scene img')).toHaveAttribute('src', './art/ocean-v1.png');
+  await page.screenshot({path: testInfo.outputPath('renew-home-ocean-selection.png'), fullPage: true});
+  await page.getByRole('searchbox', {name: 'Find a game'}).fill('moon');
+  await expect(page.getByRole('heading', {name: 'Library', exact: true})).toBeVisible();
+  await expect(page.getByRole('searchbox', {name: 'Find a game'})).toBeFocused();
+  await expect(page.locator('.game-card')).toHaveCount(1);
+  await expect(page.locator('#hero-title')).toHaveText('Moonlit Letters');
+  await expect(page.locator('#app')).toHaveAttribute('data-palette', 'violet');
+  await page.getByRole('button', {name: 'Home', exact: true}).click();
+  await page.getByRole('button', {name: 'See all Unplayed in Renew'}).click();
+  await expect(page.locator('.game-card')).toHaveCount(2);
+  await expect(page.locator('#collection-title')).toBeFocused();
+  await page.locator('#collection-title').press('Enter');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Home keyboard selection, details return focus and narrow layout remain usable', async ({page}, testInfo) => {
+  await page.setViewportSize({width: 980, height: 680});
+  await page.goto('/?preview=1');
+  const recent = page.locator('[data-shelf="recent"]');
+  const first = recent.getByRole('button', {name: 'Select The Last Orchard', exact: true});
+  await first.focus(); await first.press('ArrowRight');
+  const next = recent.getByRole('button', {name: 'Select Solstice Valley', exact: true});
+  await expect(next).toBeFocused(); await next.press('Enter');
+  await expect(page.locator('#hero-title')).toHaveText('Solstice Valley');
+  await expect(page.locator('#app')).toHaveAttribute('data-palette', 'ember');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  const details = page.locator('[data-shelf="favorites"]').getByRole('button', {name: 'Details for The Last Orchard', exact: true});
+  await details.click(); await page.getByRole('dialog').press('Escape'); await expect(details).toBeFocused();
+  await page.getByRole('button', {name: 'Expand navigation menu', exact: true}).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path: testInfo.outputPath('renew-home-narrow-expanded.png'), fullPage: true});
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  await page.getByRole('button', {name: 'Explore the empty-library state'}).click();
+  await expect(page.locator('.home-group-empty')).toHaveCount(3);
+  await expect(page.getByRole('button', {name: 'Play game', exact: true})).toHaveCount(0);
+  await page.screenshot({path: testInfo.outputPath('renew-home-empty.png'), fullPage: true});
+});
+
+test('Home honors reduced motion and leaves every full Library control available', async ({page}) => {
+  await page.emulateMedia({reducedMotion: 'reduce'});
+  await page.goto('/?preview=1');
+  const duration = await page.locator('.game-art-button img').first().evaluate(element => getComputedStyle(element).transitionDuration);
+  expect(duration).toBe('0s');
+  await page.getByRole('button', {name: 'Open Library'}).click();
+  await expect(page.locator('#collection-title')).toBeFocused();
+  await expect(page.locator('.game-card')).toHaveCount(6);
+  await expect(page.getByRole('combobox', {name: 'Sort games'})).toBeVisible();
+  await page.getByRole('button', {name: 'List view', exact: true}).click();
+  await expect(page.locator('.game-grid')).toHaveClass(/list-layout/);
+  await page.getByRole('button', {name: 'Home', exact: true}).click();
+  await expect(page.locator('.home-shelf.list-layout')).toHaveCount(0);
+  await page.getByRole('button', {name: 'Library', exact: true}).click();
+  await expect(page.locator('.game-grid')).toHaveClass(/list-layout/);
+});
