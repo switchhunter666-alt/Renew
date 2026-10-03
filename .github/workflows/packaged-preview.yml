@@ -25,7 +25,7 @@ jobs:
           node-version: '24'
           cache: npm
       # Do not download or launch the repository's Electron binary. Playwright
-      # attaches to the released portable selected explicitly by executablePath.
+      # attaches through temporary loopback ports to the spawned released portable.
       - run: npm ci --ignore-scripts
       - name: Download and bind exact released Renew portable
         shell: pwsh

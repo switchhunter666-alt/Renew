@@ -12,13 +12,16 @@ public release asset and checks its 112,122,105-byte size and SHA-256:
 - Running `app.asar`: `dde2994d917993cabe7451c76e65370c6f6c6c6bf7558f688ea526035f838285`
 
 The last hash was measured from that exact release package. The harness launches
-the outer portable EXE with Playwright's explicit `executablePath`, without a
-source entry point, bootstrap, injected preload, or repository Electron binary.
+the outer portable EXE directly, then attaches Playwright to temporary
+loopback-only CDP and Node inspector ports. It verifies the packaged main
+process is the exact portable wrapper's child. No source entry point, bootstrap,
+injected preload, or repository Electron binary is used.
 `npm ci --ignore-scripts` deliberately does not install that Electron binary.
 The launched app must report `app.isPackaged === true`, Renew version `0.1.0`,
 Electron `44.5.1`, its real packaged renderer URL and preload path under the exact
 hashed ASAR. Process path, arguments and both wrapper/main PIDs are recorded.
-Playwright attaches using debugging flags; this is instrumented packaged
+The NSIS wrapper need not forward child stderr; endpoint discovery uses only
+these newly allocated loopback ports. Playwright attaches using debugging flags; this is instrumented packaged
 execution, not an uninstrumented double-click or SmartScreen qualification.
 
 ## Bounded exercised scope

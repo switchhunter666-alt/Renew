@@ -6,10 +6,10 @@ const fs = require('node:fs/promises');
 const { writeFileSync } = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { createHash } = require('node:crypto');
-const { _electron: electron } = require('playwright');
+const { chromium } = require('playwright');
 const { expect } = require('@playwright/test');
 const { verifyPackagedUI } = require('./packaged-ui.cjs');
 const { makeSmokeRom } = require('./fixtures/renew-smoke-rom.cjs');
@@ -66,6 +66,111 @@ function observedColor(pixels) {
       pixel.every((value, index) => index === channel || value <= 60)).length >= 7) return ['red', 'green', 'blue'][channel];
   }
   return null;
+}
+
+// The NSIS portable wrapper need not forward child stderr, so attach by temporary
+// loopback-only ports rather than scraping debugger URLs from the wrapper pipe.
+// No source bootstrap, preload replacement or app-module injection is used.
+async function launchPortable({executablePath, profile, cwd, env, evidence, checkpoint}) {
+  const allocatePort = () => new Promise((resolve, reject) => {
+    const server = require('node:net').createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => { const port=server.address().port; server.close(error=>error?reject(error):resolve(port)); });
+  });
+  const nodePort = await allocatePort(), chromePort = await allocatePort();
+  assert.notEqual(nodePort, chromePort);
+  const args = [`--inspect=127.0.0.1:${nodePort}`, '--remote-debugging-address=127.0.0.1',
+    `--remote-debugging-port=${chromePort}`, `--user-data-dir=${profile}`];
+  env={...env}; delete env.NODE_OPTIONS; delete env.ELECTRON_RUN_AS_NODE;
+  const wrapper = spawn(executablePath, args, {cwd, env, windowsHide:false, stdio:['ignore','pipe','pipe']});
+  let wrapperError;
+  wrapper.on('error', error => { wrapperError = error; });
+  let output = '';
+  for (const stream of [wrapper.stdout, wrapper.stderr]) stream.on('data', chunk => { output=(output+chunk.toString()).slice(-12000); });
+  const attempt = {wrapperPid:wrapper.pid, executablePath, args, transport:'temporary-loopback-CDP-and-Node-inspector'};
+  (evidence.launchAttempts ||= []).push(attempt); checkpoint('portable:spawned');
+  let browser, ws;
+  try {
+    const deadline=Date.now()+45000;
+    let nodeEndpoint, chromeEndpoint;
+    while (Date.now()<deadline) {
+      if (wrapperError) throw wrapperError;
+      if (wrapper.exitCode !== null) throw new Error(`Portable wrapper exited before attachment: ${wrapper.exitCode}`);
+      try {
+        const targets=await fetch(`http://127.0.0.1:${nodePort}/json/list`, {signal:AbortSignal.timeout(1000)}).then(r=>r.json());
+        const version=await fetch(`http://127.0.0.1:${chromePort}/json/version`, {signal:AbortSignal.timeout(1000)}).then(r=>r.json());
+        if (targets.length===1 && targets[0].webSocketDebuggerUrl && version.webSocketDebuggerUrl) { nodeEndpoint=targets[0].webSocketDebuggerUrl; chromeEndpoint=version.webSocketDebuggerUrl; break; }
+      } catch { /* Wait for this portable's extraction and runtime startup. */ }
+      await sleep(200);
+    }
+    assert.ok(nodeEndpoint, 'The spawned portable must expose both temporary loopback debugging endpoints.');
+    const nodeURL=new URL(nodeEndpoint);
+    assert.ok(['127.0.0.1','localhost'].includes(nodeURL.hostname));
+    assert.equal(Number(nodeURL.port),nodePort);
+    const chromeURL=new URL(chromeEndpoint);
+    assert.ok(['127.0.0.1','localhost'].includes(chromeURL.hostname));
+    assert.equal(Number(chromeURL.port),chromePort);
+    assert.equal(nodeURL.protocol,'ws:'); assert.equal(chromeURL.protocol,'ws:');
+    ws=new WebSocket(nodeEndpoint);
+    await bounded(new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',()=>reject(new Error('Node inspector socket failed.')),{once:true});}),5000,'Inspector connect');
+    let counter=0;
+    const pending=new Map();
+    ws.addEventListener('message',event=>{
+      const message=JSON.parse(event.data);
+      const task=pending.get(message.id); if(!task)return; pending.delete(message.id);
+      if(message.error)task.reject(new Error(message.error.message));else task.resolve(message.result);
+    });
+    ws.addEventListener('close',()=>{for(const task of pending.values())task.reject(new Error('Inspector disconnected.'));pending.clear();});
+    const rpc=async(method,params)=>{
+      const id=++counter;
+      const request=new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+      try{return await bounded(request,10000,`Inspector ${method}`);}finally{pending.delete(id);}
+    };
+    await rpc('Runtime.enable',{});
+    const evaluate=async(fn,arg)=>{
+      const result=await rpc('Runtime.evaluate',{expression:`(${fn.toString()})(require('electron'),${JSON.stringify(arg) ?? 'undefined'})`,
+        includeCommandLineAPI:true,awaitPromise:true,returnByValue:true});
+      if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+      return result.result.value;
+    };
+    browser=await chromium.connectOverCDP(chromeEndpoint,{timeout:15000});
+    const context=browser.contexts()[0];
+    assert.ok(context,'The actual packaged browser context must exist.');
+    attempt.attached=true; attempt.wrapperOutput=output; checkpoint('portable:attached');
+    return {
+      process:()=>wrapper, context:()=>context, evaluate,
+      forceClose:async()=>{
+        evidence.forcedCleanup=true; evidence.status='FAIL';
+        ws.close(); await bounded(browser.close(),3000,'CDP detach').catch(()=>{});
+        if(wrapper.exitCode===null){
+          await execFileAsync('taskkill.exe',['/PID',String(wrapper.pid),'/T','/F'],{timeout:10000,windowsHide:true});
+          attempt.forcedTreeCleanup=true;
+        }
+      },
+      firstWindow:async()=>context.pages()[0] || context.waitForEvent('page',{timeout:30000}),
+      close:async()=>{
+        const exited=wrapper.exitCode!==null ? Promise.resolve() : new Promise(resolve=>wrapper.once('exit',resolve));
+        await evaluate(({app})=>{app.quit();return true;}).catch(error=>{if(wrapper.exitCode===null && ws.readyState===WebSocket.OPEN)throw error;});
+        // Node waits for an attached inspector to detach before exiting.
+        ws.close();
+        await bounded(exited,8000,'Portable wrapper exit');
+        await browser.close();
+      },
+    };
+  } catch(error) {
+    attempt.error=error.message; attempt.wrapperOutput=output;
+    checkpoint('portable:attachment-error');
+    ws?.close(); if(browser) await bounded(browser.close(),3000,'Failed-attach CDP detach').catch(()=>{});
+    // Only the exact child process tree spawned above may be terminated on error.
+    // This is failed-test cleanup and is never accepted as clean exit evidence.
+    if(wrapper.pid && wrapper.exitCode===null){
+      evidence.forcedCleanup=true;
+      try { await execFileAsync('taskkill.exe',['/PID',String(wrapper.pid),'/T','/F'],{timeout:10000,windowsHide:true}); attempt.forcedTreeCleanup=true; }
+      catch(cleanupError){attempt.cleanupError=cleanupError.message; evidence.cleanupError=cleanupError.message;}
+    }
+    checkpoint('portable:attachment-failed-cleanup');
+    throw error;
+  }
 }
 
 test('released Windows portable: packaged UI, authored ROM, fullscreen and clean return', {
@@ -138,8 +243,13 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
         } catch (exitError) { evidence.forceExitError = exitError.message; }
         for (let attempt = 0; attempt < 10 && processExists(renewPid); attempt++) await sleep(250);
         evidence.electronStillRunning = processExists(renewPid);
-        // The launcher wrapper is separately owned; killing it alone is not proof of app exit.
-        if (wrapper.exitCode === null) wrapper.kill();
+        // If inspector detachment made the graceful retry impossible, terminate
+        // only this still-owned portable wrapper's process tree and keep FAIL.
+        try { await bounded(application.forceClose(),12000,'Owned portable tree cleanup'); }
+        catch (cleanupError) { evidence.cleanupError=cleanupError.message; }
+        for (let attempt=0;attempt<20 && processExists(renewPid);attempt++) await sleep(250);
+        evidence.electronStillRunning=processExists(renewPid);
+        if(evidence.electronStillRunning) evidence.cleanupError='Packaged main process exit could not be confirmed.';
         for (const stream of wrapper.stdio || []) stream?.destroy?.();
         wrapper.unref();
       }
@@ -209,11 +319,8 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
     };
     const launchPackaged = async () => {
       checkpoint('portable:launch');
-      // No repository entry point, -r/--require bootstrap, or Electron dependency is launched.
-      // Explicit executablePath causes Playwright to attach to this app without its source loader.
-      application = await electron.launch({ executablePath: releaseExe,
-        args: [`--user-data-dir=${profile}`], cwd: temporary, timeout: 45000,
-        env: {...process.env, APPDATA: appData, LOCALAPPDATA: localAppData} });
+      application = await launchPortable({executablePath:releaseExe, profile, cwd:temporary,
+        env:{...process.env, APPDATA:appData, LOCALAPPDATA:localAppData}, evidence, checkpoint});
       application.context().setDefaultTimeout(12000);
       page = await application.firstWindow({timeout: 30000});
       page.on('pageerror', error => pageErrors.push(error.message));
@@ -222,7 +329,7 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
         isPackaged: app.isPackaged, appPath: app.getAppPath(), userData: app.getPath('userData'),
         exePath: process.execPath, resourcesPath: process.resourcesPath, argv: process.argv,
         version: app.getVersion(), electron: process.versions.electron, platform: process.platform,
-        pid: process.pid, url: BrowserWindow.getAllWindows()[0].webContents.getURL(),
+        pid: process.pid, parentPid:process.ppid, url: BrowserWindow.getAllWindows()[0].webContents.getURL(),
         preload: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().preload,
         portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE || null,
       }));
@@ -234,6 +341,8 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       (evidence.packagedLaunches ||= []).push({...identity, asarSha256: asarHash, runningExeSha256: runningExeHash});
       checkpoint('portable:identity');
       assert.equal(identity.isPackaged, true);
+      assert.equal(identity.parentPid, application.process().pid, 'Packaged process must be the exact spawned portable wrapper child.');
+      assert.equal((await fs.realpath(identity.portableExecutable)).toLowerCase(), (await fs.realpath(releaseExe)).toLowerCase());
       assert.equal(identity.platform, 'win32');
       assert.equal(identity.version, '0.1.0');
       assert.equal(identity.electron, '44.5.1');
