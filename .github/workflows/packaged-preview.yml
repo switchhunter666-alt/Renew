@@ -1,0 +1,80 @@
+name: Verify released Windows preview
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/packaged-preview.yml'
+      - 'tests/native/packaged-release.test.cjs'
+      - 'tests/native/packaged-ui.cjs'
+      - 'tests/native/windows-probe.ps1'
+      - 'tests/native/fixtures/renew-smoke-rom.cjs'
+      - 'docs/PACKAGED_PREVIEW_TEST.md'
+permissions:
+  contents: read
+concurrency:
+  group: packaged-preview-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  released-windows:
+    name: Released portable UI and authored-ROM verification
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      # Do not download or launch the repository's Electron binary. Playwright
+      # attaches to the released portable selected explicitly by executablePath.
+      - run: npm ci --ignore-scripts
+      - name: Download and bind exact released Renew portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'renew-released-af421c2'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $archive = Join-Path $root 'Renew-v0.1.0-preview.1-windows-x64-unsigned.zip'
+          $url = 'https://github.com/switchhunter666-alt/Renew/releases/download/v0.1.0-preview.1/Renew-v0.1.0-preview.1-windows-x64-unsigned.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $digest = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($digest -ne 'bc7603bd37555c5017c3bc0cf8379d3d6d4b2d4e21ceafce23b9219995d9522e') { throw 'Released ZIP hash mismatch.' }
+          if ((Get-Item -LiteralPath $archive).Length -ne 112122105) { throw 'Released ZIP length mismatch.' }
+          $extracted = Join-Path $root 'extracted'
+          Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+          $executables = @(Get-ChildItem -LiteralPath $extracted -Recurse -File -Filter '*.exe')
+          if ($executables.Count -ne 1) { throw 'Expected exactly one released portable EXE.' }
+          $exeDigest = (Get-FileHash -Algorithm SHA256 $executables[0].FullName).Hash.ToLowerInvariant()
+          if ($exeDigest -ne '30ff74860e7bd3808b8e09f8fb51047651f50855f7d9fa6203fd9742e9cdd1c4') { throw 'Released EXE hash mismatch.' }
+          "RENEW_RELEASE_EXE=$($executables[0].FullName)" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Path 'artifacts/packaged' -Force | Out-Null
+          @{url=$url; releaseCommit='af421c2be2baa73830e254102ebb0b90188e1a99'; zipSha256=$digest; exeSha256=$exeDigest; zipBytes=(Get-Item $archive).Length} | ConvertTo-Json | Set-Content 'artifacts/packaged/download-receipt.json'
+      - name: Prepare official mGBA 0.10.5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'renew-packaged-mgba-official-0.10.5'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $archive = Join-Path $root 'mGBA-0.10.5-win64.7z'
+          Invoke-WebRequest -Uri 'https://github.com/mgba-emu/mgba/releases/download/0.10.5/mGBA-0.10.5-win64.7z' -OutFile $archive
+          $digest = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          $extracted = Join-Path $root 'extracted'
+          & 7z x $archive "-o$extracted" -y
+          if ($LASTEXITCODE -ne 0) { throw 'Official mGBA extraction failed.' }
+          $executables = @(Get-ChildItem -LiteralPath $extracted -Recurse -File -Filter mGBA.exe)
+          if ($executables.Count -ne 1) { throw 'Expected exactly one official mGBA.exe.' }
+          "RENEW_MGBA_EXE=$($executables[0].FullName)" >> $env:GITHUB_ENV
+          "RENEW_MGBA_ARCHIVE_SHA256=$digest" >> $env:GITHUB_ENV
+      - name: Test the actual released Windows portable
+        timeout-minutes: 7
+        run: node --test tests/native/packaged-release.test.cjs
+      - name: Require explicit complete runtime evidence
+        shell: pwsh
+        run: |
+          $receipt = Get-Content -Raw 'artifacts/packaged/result.json' | ConvertFrom-Json
+          if ($receipt.status -ne 'PASS') { throw "Packaged verification did not pass: $($receipt.status) $($receipt.reason)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renew-released-windows-preview-evidence
+          path: artifacts/packaged/
+          retention-days: 14
