@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { isTrustedFileURL } = require('./trusted-file-url.cjs');
 const { LauncherService } = require('./services.cjs');
 const { collectDeviceInfo } = require('./device-info.cjs');
@@ -123,7 +124,9 @@ function createWindow() {
     })();
   });
   window.on('closed', () => { window = null; });
-  void window.loadFile(entryPath).catch(error => {
+  // Use a fully encoded file URL: Electron loadFile's legacy URL formatter
+  // leaves literal percent signs in Windows extraction paths unescaped.
+  void window.loadURL(pathToFileURL(entryPath).href).catch(error => {
     dialog.showErrorBox('Renew could not open', `The launcher interface could not be loaded. ${error.message}`);
     closeApproved = true;
     app.quit();

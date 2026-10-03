@@ -360,8 +360,9 @@ test('Windows portable: packaged UI, authored ROM, fullscreen and clean return',
           const entry=main ? paths.join(paths.dirname(main),'..','src','index.html') : null;
           const actual=BrowserWindow.getAllWindows()[0].webContents.mainFrame.url;
           const result={loadedMain:main,entryPath:entry,entryURL:entry ? urls.pathToFileURL(entry).href : null,actualURL:actual};
-          for(const [name,value] of [['entryRealPath',entry],['actualRealPath',actual.startsWith('file:') ? urls.fileURLToPath(actual) : null]]){
-            try{result[name]=value ? fs.realpathSync(value) : null;}catch(error){result[name+'Error']=error.message;}
+          for(const name of ['entryRealPath','actualRealPath']){
+            try{const value=name==='entryRealPath' ? entry : urls.fileURLToPath(actual);
+              result[name]=value ? fs.realpathSync(value) : null;}catch(error){result[name+'Error']=error.message;}
           }
           return result;
         })(),

@@ -47,6 +47,7 @@ async function mainHarness(runtimeDirectory = desktopDirectory) {
     isDestroyed() { return this.destroyed; }
     removeMenu() {}
     async loadFile(file) { this.loaded = file; }
+    async loadURL(url) { this.loadedURL = url; }
     show() { calls.push('show'); }
     focus() { calls.push('focus'); }
     isMinimized() { return false; }
@@ -246,4 +247,17 @@ test('real main trust handler accepts Chromium tilde spelling only for the exact
     h.window.webContents.mainFrame.url=url;
     await assert.rejects(get(h.event()),/did not come/);
   }
+});
+
+
+test('main loads its one document using a fully encoded URL for reserved and Unicode path characters', async () => {
+  const directory=path.join(path.dirname(desktopDirectory),'Portable ~ # % 日本','resources','app.asar','desktop');
+  const h=await mainHarness(directory);
+  const entry=path.join(directory,'..','src','index.html');
+  assert.equal(h.window.loadedURL,pathToFileURL(entry).href);
+  assert.match(h.window.loadedURL,/%25/);
+  assert.match(h.window.loadedURL,/%23/);
+  assert.equal(require('node:url').fileURLToPath(h.window.loadedURL),entry);
+  h.window.webContents.mainFrame.url=h.window.loadedURL.replace(/%7E/gi,'~');
+  assert.equal((await h.handlers.get('renew:get-state')(h.event())).session,null);
 });
