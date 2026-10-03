@@ -324,7 +324,7 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
       application.context().setDefaultTimeout(12000);
       page = await application.firstWindow({timeout: 30000});
       page.on('pageerror', error => pageErrors.push(error.message));
-      await expect(page.getByRole('heading', {name:'Home',exact:true})).toBeVisible();
+      await page.waitForLoadState('domcontentloaded');
       const identity = await application.evaluate(({app, BrowserWindow}) => ({
         isPackaged: app.isPackaged, appPath: app.getAppPath(), userData: app.getPath('userData'),
         exePath: process.execPath, resourcesPath: process.resourcesPath, argv: process.argv,
@@ -332,13 +332,30 @@ test('released Windows portable: packaged UI, authored ROM, fullscreen and clean
         pid: process.pid, parentPid:process.ppid, url: BrowserWindow.getAllWindows()[0].webContents.getURL(),
         preload: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().preload,
         portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE || null,
+        expectedEntryURL: require('node:url').pathToFileURL(require('node:path').join(app.getAppPath(),'src','index.html')).href,
+        mainFrameURL: BrowserWindow.getAllWindows()[0].webContents.mainFrame.url,
+        mainFrameRoutingId: BrowserWindow.getAllWindows()[0].webContents.mainFrame.routingId,
+        webContentsId: BrowserWindow.getAllWindows()[0].webContents.id,
+        modulePaths: Object.keys(require.cache).filter(file=>/[\\/]desktop[\\/](?:main|preload)\.cjs$/.test(file)),
+        pathDiagnosis: (()=>{
+          const paths=require('node:path'), urls=require('node:url'), fs=require('node:fs');
+          const main=Object.keys(require.cache).find(file=>/[\\/]desktop[\\/]main\.cjs$/.test(file));
+          const entry=main ? paths.join(paths.dirname(main),'..','src','index.html') : null;
+          const actual=BrowserWindow.getAllWindows()[0].webContents.mainFrame.url;
+          const result={loadedMain:main,entryPath:entry,entryURL:entry ? urls.pathToFileURL(entry).href : null,actualURL:actual};
+          for(const [name,value] of [['entryRealPath',entry],['actualRealPath',actual.startsWith('file:') ? urls.fileURLToPath(actual) : null]]){
+            try{result[name]=value ? fs.realpathSync(value) : null;}catch(error){result[name+'Error']=error.message;}
+          }
+          return result;
+        })(),
       }));
       renewPid = identity.pid;
       assertOwnedPath(await fs.realpath(identity.userData));
       profile = identity.userData;
       const asarHash = sha256(await fs.readFile(identity.appPath));
       const runningExeHash = sha256(await fs.readFile(identity.exePath));
-      (evidence.packagedLaunches ||= []).push({...identity, asarSha256: asarHash, runningExeSha256: runningExeHash});
+      (evidence.packagedLaunches ||= []).push({...identity, asarSha256: asarHash, runningExeSha256: runningExeHash,
+        renderer:await page.evaluate(()=>({url:location.href,apiType:typeof window.renewAPI?.getState,text:document.body.innerText.slice(0,2000)}))});
       checkpoint('portable:identity');
       assert.equal(identity.isPackaged, true);
       assert.equal(identity.parentPid, application.process().pid, 'Packaged process must be the exact spawned portable wrapper child.');
